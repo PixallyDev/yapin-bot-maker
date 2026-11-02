@@ -1,6 +1,11 @@
 import React, { useState } from 'react'
 
 interface ToolbarProps {
+  rememberToken: boolean
+  tokenStorageAvailable: boolean
+  onRememberToken: (remember: boolean) => void
+  onExportStandalone: () => void
+  isExporting: boolean
   token: string
   onTokenChange: (token: string) => void
   isRunning: boolean
@@ -13,6 +18,11 @@ interface ToolbarProps {
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
+  rememberToken,
+  tokenStorageAvailable,
+  onRememberToken,
+  onExportStandalone,
+  isExporting,
   token,
   onTokenChange,
   isRunning,
@@ -61,6 +71,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         </div>
       </div>
 
+      <label
+        className="remember-token"
+        title={
+          tokenStorageAvailable
+            ? 'Store encrypted on this PC only'
+            : 'Secure token storage is unavailable'
+        }
+      >
+        <input
+          type="checkbox"
+          checked={rememberToken}
+          disabled={!tokenStorageAvailable && !rememberToken}
+          onChange={(event) => onRememberToken(event.target.checked)}
+        />
+        Remember token on this PC
+      </label>
+
       <div className="toolbar-center">
         <div className={`status-badge ${isRunning ? 'status-running' : 'status-stopped'}`}>
           <span className={`status-dot ${isRunning ? 'pulse' : ''}`} />
@@ -70,6 +97,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       <div className="toolbar-right">
         <div className="project-actions-group">
+          <button
+            type="button"
+            className="toolbar-btn btn-secondary"
+            onClick={onExportStandalone}
+            disabled={isExporting}
+            title="Export a Node.js bot that runs independently of the studio"
+          >
+            {isExporting ? 'Exporting...' : 'Export Standalone Bot'}
+          </button>
           <button
             type="button"
             className="toolbar-btn btn-templates"

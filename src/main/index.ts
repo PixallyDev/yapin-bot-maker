@@ -4,6 +4,8 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { BotRunner, type BotLogPayload } from './botRunner'
 import { saveProject, loadProject } from './projectFiles'
+import { TokenStore } from './tokenStore'
+import { exportStandalone } from './standaloneExport'
 
 let mainWindow: BrowserWindow | null = null
 let botRunner: BotRunner | null = null
@@ -63,6 +65,22 @@ app.whenReady().then(() => {
   }
 
   botRunner = new BotRunner(emitLog, emitStatus)
+
+  const tokens = new TokenStore(app.getPath('userData'))
+  ipcMain.handle('bot:get-token-settings', () => tokens.get())
+  ipcMain.handle('bot:set-token-settings', (_event, token: unknown, remember: unknown) =>
+    tokens.set(token, remember)
+  )
+  ipcMain.handle('bot:export-standalone', async (_event, graph: unknown) => {
+    const result = await exportStandalone(mainWindow, graph)
+    if (result.success)
+      emitLog({
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        level: 'success',
+        message: `Standalone bot exported to ${result.folderPath}`
+      })
+    return result
+  })
 
   // IPC Handlers
   ipcMain.handle('bot:start', async (_event, graph: unknown) => {

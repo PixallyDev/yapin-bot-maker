@@ -119,9 +119,21 @@ const INITIAL_EDGES: BotEdge[] = [
 ]
 
 function StudioCanvas(): React.JSX.Element {
-  const [token, setToken] = useState<string>(() => {
-    return localStorage.getItem('yapin_bot_token') || ''
+  const [token, setToken] = useState(() => {
+    try {
+      return typeof window !== 'undefined'
+        ? (window.localStorage.getItem('yapin_bot_token') ?? '')
+        : ''
+    } catch {
+      return ''
+    }
   })
+  const [rememberToken, setRememberToken] = useState(false)
+  const [tokenStorageReady, setTokenStorageReady] = useState(false)
+  const [tokenStorageAvailable, setTokenStorageAvailable] = useState(false)
+  const [isExporting, setIsExporting] = useState(false)
+  const tokenEdited = useRef(false)
+  const tokenSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [isRunning, setIsRunning] = useState<boolean>(false)
   const [isStarting, setIsStarting] = useState<boolean>(false)
   const [isTemplatesOpen, setIsTemplatesOpen] = useState<boolean>(false)
@@ -138,10 +150,94 @@ function StudioCanvas(): React.JSX.Element {
   const reactFlowWrapper = useRef<HTMLDivElement>(null)
   const { screenToFlowPosition, fitView } = useReactFlow()
 
-  // Save token to localStorage
+  const reportError = useCallback((message: string): void => {
+    setLogs((prev) => [
+      ...prev.slice(-499),
+      {
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        level: 'error',
+        message
+      }
+    ])
+  }, [])
+
   const handleTokenChange = (newToken: string): void => {
+    tokenEdited.current = true
     setToken(newToken)
-    localStorage.setItem('yapin_bot_token', newToken)
+  }
+
+  useEffect(() => {
+    // Remove legacy plaintext credentials without silently opting into persistence.
+    try {
+      if (typeof window !== 'undefined') window.localStorage.removeItem('yapin_bot_token')
+    } catch {
+      /* Storage may be disabled. */
+    }
+    if (typeof window === 'undefined' || !window.botApi) return
+    let active = true
+    void window.botApi
+      .getTokenSettings()
+      .then((settings) => {
+        if (!active) return
+        setTokenStorageAvailable(settings.available)
+        setRememberToken(settings.remember)
+        if (!tokenEdited.current && settings.token) setToken(settings.token)
+        setTokenStorageReady(true)
+        if (settings.error) reportError(settings.error)
+      })
+      .catch(() => {
+        if (active) reportError('Could not read secure token settings.')
+      })
+    return () => {
+      active = false
+    }
+  }, [reportError])
+
+  useEffect(() => {
+    if (
+      !rememberToken ||
+      !tokenStorageReady ||
+      !tokenStorageAvailable ||
+      typeof window === 'undefined' ||
+      !window.botApi
+    )
+      return
+    const api = window.botApi
+    tokenSaveTimer.current = setTimeout(() => {
+      void api
+        .setTokenSettings(token, true)
+        .then((result) => {
+          if (!result.success) reportError(result.error ?? 'Could not remember token securely.')
+        })
+        .catch(() => reportError('Could not remember token securely.'))
+    }, 400)
+    return () => {
+      if (tokenSaveTimer.current) clearTimeout(tokenSaveTimer.current)
+    }
+  }, [token, rememberToken, tokenStorageReady, tokenStorageAvailable, reportError])
+
+  const handleRememberToken = async (remember: boolean): Promise<void> => {
+    if (typeof window === 'undefined' || !window.botApi) return
+    if (tokenSaveTimer.current) clearTimeout(tokenSaveTimer.current)
+    setRememberToken(remember)
+    const result = await window.botApi.setTokenSettings(token, remember).catch(() => null)
+    if (!result?.success) {
+      setRememberToken(false)
+      reportError(result?.error ?? 'Could not update secure token settings.')
+    }
+  }
+
+  const handleExportStandalone = async (): Promise<void> => {
+    if (typeof window === 'undefined' || !window.botApi || isExporting) return
+    setIsExporting(true)
+    try {
+      const result = await window.botApi.exportStandalone({ token, nodes, edges })
+      if (result.error) reportError(result.error)
+    } catch {
+      reportError('Standalone export failed.')
+    } finally {
+      setIsExporting(false)
+    }
   }
 
   // Connect edges
@@ -191,7 +287,7 @@ function StudioCanvas(): React.JSX.Element {
         }
         const res = await window.botApi.startBot(payload)
         if (res.success) {
-          setIsRunning(true)
+          setIsRunning((await window.botApi.getBotStatus()).running)
         } else {
           setLogs((prev) => [
             ...prev,
@@ -243,9 +339,6 @@ function StudioCanvas(): React.JSX.Element {
     if (typeof window === 'undefined' || !window.botApi) return
     const res = await window.botApi.loadProject()
     if (res.success && res.data) {
-      if (res.data.token) {
-        handleTokenChange(res.data.token)
-      }
       if (res.data.nodes) {
         setNodes(res.data.nodes as BotNode[])
       }
@@ -346,6 +439,11 @@ function StudioCanvas(): React.JSX.Element {
     <div className="studio-container">
       <Toolbar
         token={token}
+        rememberToken={rememberToken}
+        tokenStorageAvailable={tokenStorageReady && tokenStorageAvailable}
+        onRememberToken={handleRememberToken}
+        onExportStandalone={handleExportStandalone}
+        isExporting={isExporting}
         onTokenChange={handleTokenChange}
         isRunning={isRunning}
         isStarting={isStarting}

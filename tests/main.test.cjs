@@ -15,18 +15,49 @@ require.extensions['.ts'] = (module, filename) => {
   module._compile(outputText, filename)
 }
 const dialogs = {}
+const crypto = require('node:crypto')
+const encryptionKey = crypto.randomBytes(32)
+let encryptionAvailable = true
+const secureStorage = {
+  isEncryptionAvailable: () => encryptionAvailable,
+  getSelectedStorageBackend: () => 'gnome_libsecret',
+  encryptString: (text) => {
+    const iv = crypto.randomBytes(12)
+    const cipher = crypto.createCipheriv('aes-256-gcm', encryptionKey, iv)
+    const encrypted = Buffer.concat([cipher.update(text, 'utf8'), cipher.final()])
+    return Buffer.concat([iv, cipher.getAuthTag(), encrypted])
+  },
+  decryptString: (data) => {
+    const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey, data.subarray(0, 12))
+    decipher.setAuthTag(data.subarray(12, 28))
+    return Buffer.concat([decipher.update(data.subarray(28)), decipher.final()]).toString('utf8')
+  }
+}
 const originalLoad = Module._load
 Module._load = function (id, ...args) {
-  return id === 'electron' ? { dialog: dialogs } : originalLoad.call(this, id, ...args)
+  if (id === 'electron') return { dialog: dialogs, safeStorage: secureStorage }
+  if (id === 'virtual:bot-runtime')
+    return {
+      default: ts.transpileModule(
+        fs.readFileSync(path.join(__dirname, '../src/main/botRunner.ts'), 'utf8'),
+        {
+          compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
+        }
+      ).outputText
+    }
+  return originalLoad.call(this, id, ...args)
 }
-const { BotRunner } = require('../src/main/botRunner.ts')
+const { BotRunner, reconnectDelay } = require('../src/main/botRunner.ts')
 const { saveProject, loadProject, parseProject } = require('../src/main/projectFiles.ts')
+const { TokenStore } = require('../src/main/tokenStore.ts')
+const { standaloneFiles, exportStandalone } = require('../src/main/standaloneExport.ts')
 Module._load = originalLoad
 const originalFetch = global.fetch
 const runners = []
 afterEach(async () => {
   for (const runner of runners.splice(0)) await runner.stop()
   global.fetch = originalFetch
+  encryptionAvailable = true
 })
 const json = (data, status = 200, headers) =>
   new Response(JSON.stringify(data), { status, headers })
@@ -354,8 +385,11 @@ test('native dialogs save and reopen versioned projects, handle cancellation and
     }
     const loaded = await loadProject(parent)
     assert.equal(loaded.success, true)
-    assert.deepEqual(loaded.data, input)
-    // A blank token must round-trip and replace the previous token in the UI.
+    assert.deepEqual(loaded.data, { ...input, token: '' })
+    assert.equal('token' in disk, false)
+    assert.ok(!JSON.stringify(disk).includes(input.token))
+    assert.equal(parseProject({ ...disk, token: input.token }).token, '')
+    // Legacy files never import a raw credential into the renderer.
     assert.equal(parseProject({ ...input, token: '' }).token, '')
     assert.throws(() => parseProject({ ...disk, version: '99' }), /version/)
     assert.throws(() => parseProject({ ...disk, graph: { nodes: {}, edges: [] } }), /arrays|array/)
@@ -476,4 +510,234 @@ test('checkUserRole, cooldownTimer, setVariable, sendRichMessage and moderateMes
     calls.some((c) => c.method === 'POST' && JSON.parse(c.body).content?.includes('Count: 1'))
   )
   await instance.stop()
+})
+
+test('50-hop budget covers every matching trigger and resets for each event', async () => {
+  api([message(11, 'first'), message(12, 'second')])
+  const { instance, logs } = runner()
+  const nodes = [trigger(), node('another', 'onMessage', { ignoreBots: true })]
+  const edges = []
+  for (let i = 0; i < 30; i++) {
+    nodes.push(node(`hop${i}`, 'logConsole', { message: 'HOP {content}', level: 'info' }))
+    if (i) edges.push(edge(`hop${i - 1}`, `hop${i}`))
+  }
+  edges.push(edge('trigger', 'hop0'), edge('another', 'hop0'))
+  assert.equal((await instance.start(graph(nodes, edges))).success, true)
+  await until(() => logs.filter((log) => log.message.includes('50 node-hop limit')).length === 2)
+  assert.equal(logs.filter((log) => log.message === 'HOP first').length, 50)
+  assert.equal(logs.filter((log) => log.message === 'HOP second').length, 50)
+  assert.ok(
+    logs
+      .filter((log) => log.message.includes('50 node-hop limit'))
+      .every((log) => log.level === 'warn')
+  )
+})
+
+test('exponential reconnect delay doubles with bounded jitter and caps at 30 seconds', () => {
+  for (let attempt = 1; attempt <= 12; attempt++) {
+    const base = Math.min(30_000, 1000 * 2 ** (attempt - 1))
+    for (let i = 0; i < 20; i++) {
+      const delay = reconnectDelay(attempt)
+      assert.ok(delay >= base && delay <= Math.min(30_000, base * 1.2))
+    }
+  }
+})
+
+test('reconnect backoff increases, resets after success and Stop cancels it', async () => {
+  // Accelerate only runner retry sleeps; AbortSignal request deadlines remain untouched.
+  const originalTimeout = global.setTimeout
+  const delays = []
+  global.setTimeout = (fn, ms, ...args) => {
+    if (ms >= 1000 && ms <= 30_000) {
+      delays.push(ms)
+      return originalTimeout(fn, 1, ...args)
+    }
+    return originalTimeout(fn, ms, ...args)
+  }
+  try {
+    let polls = 0
+    api([], (call) => {
+      if (call.path.includes('wait=20')) {
+        polls++
+        if ([1, 2, 4].includes(polls)) throw new Error('Connection dropped')
+        if (polls === 3) return json({ events: [], last: 20 })
+      }
+    })
+    const { instance, logs } = runner()
+    await instance.start(graph([trigger()]))
+    await until(() => delays.length >= 3)
+    assert.ok(delays[0] >= 1000 && delays[0] <= 1200)
+    assert.ok(delays[1] >= 2000 && delays[1] <= 2400)
+    assert.ok(delays[2] >= 1000 && delays[2] <= 1200)
+    assert.ok(logs.some((log) => log.message.includes('Connection restored')))
+    await instance.stop()
+    const count = polls
+    await new Promise((resolve) => originalTimeout(resolve, 30))
+    assert.equal(polls, count)
+  } finally {
+    global.setTimeout = originalTimeout
+  }
+})
+
+test('secure local token storage is opt-in, encrypted, serializes updates and can be cleared', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'yapbot-vault-'))
+  try {
+    const store = new TokenStore(dir)
+    assert.deepEqual(await store.get(), { success: true, available: true, remember: false })
+    assert.deepEqual(await fsp.readdir(dir), [])
+    assert.equal((await store.set('yb_private_token', true)).success, true)
+    const disk = await fsp.readFile(path.join(dir, 'bot-token.enc'))
+    assert.ok(!disk.toString().includes('yb_private_token'))
+    assert.equal((await new TokenStore(dir).get()).token, 'yb_private_token')
+    await Promise.all([store.set('yb_latest_token', true), store.set('', false)])
+    assert.equal((await store.get()).remember, false)
+    assert.deepEqual(await fsp.readdir(dir), [])
+    encryptionAvailable = false
+    assert.equal((await store.set('yb_no_plaintext_fallback', true)).success, false)
+    assert.deepEqual(await fsp.readdir(dir), [])
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('corrupt encrypted credentials return a generic error without exposing data', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'yapbot-vault-'))
+  try {
+    await fsp.writeFile(path.join(dir, 'bot-token.enc'), 'yb_secret_corrupt_data')
+    const result = await new TokenStore(dir).get()
+    assert.equal(result.success, false)
+    assert.equal(result.token, undefined)
+    assert.ok(!result.error.includes('yb_secret'))
+  } finally {
+    await fsp.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('standalone export creates all files without credentials and executes the exported graph', async () => {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), 'yapbot-export-'))
+  const oldToken = process.env.YAPPER_BOT_TOKEN
+  try {
+    const input = graph(
+      [
+        trigger(),
+        node('condition', 'textCondition', {
+          operator: 'contains',
+          value: 'hello',
+          caseSensitive: false
+        }),
+        node('variable', 'setVariable', {
+          varName: 'greeting',
+          value: 'Welcome',
+          operation: 'set'
+        }),
+        node('reply', 'sendReply', { message: '{var:greeting} {user} in {channel}: {content}' })
+      ],
+      [
+        edge('trigger', 'condition'),
+        edge('condition', 'variable', 'true'),
+        edge('variable', 'reply')
+      ]
+    )
+    dialogs.showOpenDialog = async (options) => {
+      assert.ok(options.properties.includes('openDirectory'))
+      return { canceled: false, filePaths: [dir] }
+    }
+    const exported = await exportStandalone(null, input)
+    assert.equal(exported.success, true, exported.error)
+    const files = await fsp.readdir(exported.folderPath)
+    for (const required of [
+      'bot.js',
+      'package.json',
+      '.env.example',
+      'README.txt',
+      'Start-Bot.bat'
+    ]) {
+      assert.ok(files.includes(required))
+      assert.ok(
+        !(await fsp.readFile(path.join(exported.folderPath, required), 'utf8')).includes(
+          input.token
+        )
+      )
+    }
+    const syntax = require('node:child_process').spawnSync(
+      process.execPath,
+      ['--check', path.join(exported.folderPath, 'bot.js')],
+      { encoding: 'utf8' }
+    )
+    assert.equal(syntax.status, 0, syntax.stderr)
+    const missingToken = require('node:child_process').spawnSync(process.execPath, ['bot.js'], {
+      cwd: exported.folderPath,
+      env: { ...process.env, YAPPER_BOT_TOKEN: '' },
+      encoding: 'utf8'
+    })
+    assert.equal(missingToken.status, 1)
+    assert.ok(!missingToken.stderr.includes(input.token))
+    const calls = api([message(11, 'Hello there')])
+    // Exercise Node's built-in .env loading; no npm install and no Electron runtime.
+    delete process.env.YAPPER_BOT_TOKEN
+    await fsp.writeFile(path.join(exported.folderPath, '.env'), 'YAPPER_BOT_TOKEN=yb_test_token\n')
+    const { startStandalone } = require(path.join(exported.folderPath, 'bot.js'))
+    const bot = await startStandalone()
+    runners.push(bot)
+    await until(() => calls.some((call) => call.method === 'POST'))
+    assert.deepEqual(JSON.parse(calls.find((call) => call.method === 'POST').body), {
+      content: 'Welcome Alice in channel: Hello there',
+      reply_to: 'msg-11'
+    })
+    await bot.stop()
+    // Another export creates a distinct folder and preserves the configured .env.
+    const next = await exportStandalone(null, input)
+    assert.notEqual(next.folderPath, exported.folderPath)
+    assert.equal(
+      await fsp.readFile(path.join(exported.folderPath, '.env'), 'utf8'),
+      'YAPPER_BOT_TOKEN=yb_test_token\n'
+    )
+    dialogs.showOpenDialog = async () => ({ canceled: true, filePaths: [] })
+    assert.deepEqual(await exportStandalone(null, input), { success: false })
+  } finally {
+    if (oldToken === undefined) delete process.env.YAPPER_BOT_TOKEN
+    else process.env.YAPPER_BOT_TOKEN = oldToken
+    await fsp.rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('export refuses invalid executable graphs and secrets pasted into node settings', () => {
+  const secretGraph = graph([
+    trigger(),
+    node('log', 'logConsole', { message: 'yb_test_token', level: 'info' })
+  ])
+  assert.throws(() => standaloneFiles(secretGraph), /Remove bot tokens/)
+  assert.throws(() => standaloneFiles(graph([])), /trigger/)
+  assert.throws(
+    () =>
+      standaloneFiles(
+        graph(
+          [trigger(), node('log', 'logConsole', { message: 'safe', level: 'info' })],
+          [edge('trigger', 'log'), edge('log', 'log')]
+        )
+      ),
+    /cycle/
+  )
+})
+
+test('long server Retry-After takes precedence over exponential delay and is cancellable', async () => {
+  let delay
+  const originalTimeout = global.setTimeout
+  global.setTimeout = (fn, ms, ...args) => {
+    if (ms >= 60_000) delay = ms
+    return originalTimeout(fn, ms, ...args)
+  }
+  try {
+    api([], (call) =>
+      call.path.includes('wait=20') ? json({ error: 'busy' }, 503, { 'Retry-After': '60' }) : null
+    )
+    const { instance } = runner()
+    await instance.start(graph([trigger()]))
+    await until(() => delay)
+    assert.equal(delay, 60_000)
+    await instance.stop()
+    assert.equal(instance.getStatus().running, false)
+  } finally {
+    global.setTimeout = originalTimeout
+  }
 })

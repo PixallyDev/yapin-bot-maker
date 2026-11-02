@@ -220,6 +220,13 @@ type Session = {
   cooldowns: Map<string, number>
 }
 
+type EventBudget = { hops: number; warned: boolean }
+
+export function reconnectDelay(failures: number): number {
+  const base = Math.min(30_000, 1000 * 2 ** Math.min(5, Math.max(0, failures - 1)))
+  return Math.min(30_000, Math.round(base * (1 + Math.random() * 0.2)))
+}
+
 type MessageContext = {
   author: string
   authorId: string
@@ -234,7 +241,8 @@ type MessageContext = {
 class ApiError extends Error {
   constructor(
     public readonly status: number,
-    message: string
+    message: string,
+    public readonly retryAfterMs = 0
   ) {
     super(message)
   }
@@ -257,6 +265,49 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
     }, ms)
     signal.addEventListener('abort', onAbort, { once: true })
   })
+}
+
+export function compileGraph(input: unknown): {
+  graph: BotGraphPayload
+  outgoing: Map<string, NodeGraphEdge[]>
+  commands: { name: string; description: string }[]
+} {
+  validateGraph(input)
+  const graph = structuredClone(input)
+  graph.token = graph.token.trim()
+  const outgoing = new Map<string, NodeGraphEdge[]>()
+  const indegree = new Map(graph.nodes.map((node) => [node.id, 0]))
+  for (const edge of graph.edges) {
+    outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge])
+    indegree.set(edge.target, indegree.get(edge.target)! + 1)
+  }
+  // Reject cycles before executing any actions, including cycles in disconnected sections.
+  const ready = graph.nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id)
+  for (let i = 0; i < ready.length; i++) {
+    for (const edge of outgoing.get(ready[i]) ?? []) {
+      const count = indegree.get(edge.target)! - 1
+      indegree.set(edge.target, count)
+      if (count === 0) ready.push(edge.target)
+    }
+  }
+  if (ready.length !== graph.nodes.length)
+    throw new Error('The bot graph contains a cycle. Remove looping connections.')
+  const commands = graph.nodes
+    .filter((node) => node.type === 'onCommand')
+    .map((node) => ({
+      name: String(node.data.commandName),
+      description: String(node.data.description)
+    }))
+  if (
+    commands.length > 100 ||
+    new Set(commands.map((command) => command.name)).size !== commands.length
+  ) {
+    throw new Error('Use at most 100 commands, each with a unique name.')
+  }
+  if (!graph.nodes.some((node) => node.type === 'onMessage' || node.type === 'onCommand')) {
+    throw new Error('Add an On Message or On Command trigger before starting.')
+  }
+  return { graph, outgoing, commands }
 }
 
 export class BotRunner {
@@ -282,43 +333,9 @@ export class BotRunner {
       return { success: false, message: 'Bot is already starting or running. Stop it first.' }
     let session: Session | null = null
     try {
-      validateGraph(input)
-      const graph = structuredClone(input)
-      graph.token = graph.token.trim()
+      const { graph, outgoing, commands } = compileGraph(input)
       if (!/^yb_\S+$/.test(graph.token))
         throw new Error('Enter a valid bot token beginning with yb_.')
-      const outgoing = new Map<string, NodeGraphEdge[]>()
-      const indegree = new Map(graph.nodes.map((node) => [node.id, 0]))
-      for (const edge of graph.edges) {
-        outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge])
-        indegree.set(edge.target, indegree.get(edge.target)! + 1)
-      }
-      // Reject cycles before executing any actions, including cycles in disconnected sections.
-      const ready = graph.nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id)
-      for (let i = 0; i < ready.length; i++) {
-        for (const edge of outgoing.get(ready[i]) ?? []) {
-          const count = indegree.get(edge.target)! - 1
-          indegree.set(edge.target, count)
-          if (count === 0) ready.push(edge.target)
-        }
-      }
-      if (ready.length !== graph.nodes.length)
-        throw new Error('The bot graph contains a cycle. Remove looping connections.')
-      const commands = graph.nodes
-        .filter((node) => node.type === 'onCommand')
-        .map((node) => ({
-          name: String(node.data.commandName),
-          description: String(node.data.description)
-        }))
-      if (
-        commands.length > 100 ||
-        new Set(commands.map((command) => command.name)).size !== commands.length
-      ) {
-        throw new Error('Use at most 100 commands, each with a unique name.')
-      }
-      if (!graph.nodes.some((node) => node.type === 'onMessage' || node.type === 'onCommand')) {
-        throw new Error('Add an On Message or On Command trigger before starting.')
-      }
       session = {
         graph,
         controller: new AbortController(),
@@ -447,7 +464,12 @@ export class BotRunner {
       const detail = isRecord(data) && typeof data.error === 'string' ? `: ${data.error}` : ''
       throw new ApiError(
         response.status,
-        `${method} ${path.split('?')[0]} returned HTTP ${response.status}${detail}`
+        `${method} ${path.split('?')[0]} returned HTTP ${response.status}${detail}`,
+        (response.status === 429 || response.status === 503) &&
+          Number.isFinite(retrySeconds) &&
+          retrySeconds >= 0
+          ? retrySeconds * 1000
+          : 0
       )
     }
   }
@@ -467,6 +489,7 @@ export class BotRunner {
 
   private async poll(session: Session): Promise<void> {
     const signal = session.controller.signal
+    let failures = 0
     while (!signal.aborted) {
       try {
         const body = await this.request(
@@ -475,6 +498,8 @@ export class BotRunner {
           `/events?after=${encodeURIComponent(session.last)}&wait=20`
         )
         this.readPoll(body)
+        if (failures) this.log('success', '[Runner] Connection restored; resuming events.')
+        failures = 0
         for (const event of body.events) {
           signal.throwIfAborted()
           if (
@@ -493,14 +518,21 @@ export class BotRunner {
           await this.handleEvent(session, event.type, event.data)
           session.last = event.id
         }
-        session.last = body.last
+        if (BigInt(body.last) > BigInt(session.last)) session.last = body.last
         // Protect against an endpoint returning empty long polls immediately.
         await wait(250, signal)
       } catch (error: unknown) {
         if (signal.aborted) return
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) throw error
-        this.log('warn', `[Runner] ${errorMessage(error)}. Reconnecting in 3s.`)
-        await wait(3000, signal)
+        const delay = Math.max(
+          reconnectDelay(++failures),
+          error instanceof ApiError ? error.retryAfterMs : 0
+        )
+        this.log(
+          'warn',
+          `[Runner] ${errorMessage(error)}. Reconnecting in ${(delay / 1000).toFixed(1)}s (attempt ${failures}).`
+        )
+        await wait(delay, signal)
       }
     }
   }
@@ -544,11 +576,12 @@ export class BotRunner {
       content: data.content,
       channel: data.channel_id,
       messageId: data.id,
-      serverId: typeof data.server_id === 'string' ? data.server_id : 'server',
+      serverId: typeof data.server_id === 'string' ? data.server_id : '',
       authorBot: data.author_bot === true || (isRecord(data.author) && data.author.bot === true),
       args: typeof data.args === 'string' ? data.args : (cmdMatch?.[2] ?? '')
     }
 
+    const budget: EventBudget = { hops: 0, warned: false }
     for (const node of session.graph.nodes) {
       session.controller.signal.throwIfAborted()
       const matches =
@@ -560,7 +593,8 @@ export class BotRunner {
             command === node.data.commandName
       if (!matches) continue
       this.log('info', `[Trigger] ${String(node.data.label ?? node.id)}`)
-      await this.execute(session, node.id, context)
+      await this.execute(session, node.id, context, budget)
+      if (budget.warned) break
     }
   }
 
@@ -579,16 +613,22 @@ export class BotRunner {
   private async execute(
     session: Session,
     triggerId: string,
-    context: MessageContext
+    context: MessageContext,
+    budget: EventBudget
   ): Promise<void> {
     const stack = [...(session.outgoing.get(triggerId) ?? [])].reverse().map((edge) => edge.target)
-    let steps = 0
     while (stack.length) {
       session.controller.signal.throwIfAborted()
-      if (++steps > 10_000) {
-        this.log('error', '[Runner] Execution exceeded 10000 steps; simplify graph branching.')
+      if (budget.hops >= 50) {
+        if (!budget.warned)
+          this.log(
+            'warn',
+            '[Runner] Event reached the 50 node-hop limit; remaining branches skipped.'
+          )
+        budget.warned = true
         return
       }
+      budget.hops++
       const node = session.nodes.get(stack.pop()!)!
       let handle = 'out'
       try {
@@ -758,6 +798,9 @@ export class BotRunner {
           await wait(seconds * 1000, session.controller.signal)
         } else if (node.type === 'moderateMessage') {
           const actionType = String(node.data.actionType ?? 'delete')
+          if (actionType !== 'delete' && (!context.serverId || !context.authorId)) {
+            throw new Error('Server moderation requires a server ID and author ID.')
+          }
           if (actionType === 'delete') {
             await this.request(
               session,

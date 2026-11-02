@@ -3,6 +3,10 @@ import { electronAPI } from '@electron-toolkit/preload'
 import type { BotApi, BotGraph, BotLog } from './index.d'
 
 const botApi: BotApi = {
+  getTokenSettings: () => ipcRenderer.invoke('bot:get-token-settings'),
+  setTokenSettings: (token, remember) =>
+    ipcRenderer.invoke('bot:set-token-settings', token, remember),
+  exportStandalone: (graph) => ipcRenderer.invoke('bot:export-standalone', graph),
   startBot: (graph: BotGraph): Promise<{ success: boolean; message?: string }> => {
     return ipcRenderer.invoke('bot:start', graph)
   },

@@ -12,18 +12,28 @@ export function parseProject(value: unknown): BotGraphPayload {
   if (value.version !== undefined && value.version !== '1.0.0') {
     throw new Error(`Unsupported project version: ${String(value.version)}`)
   }
-  let graph: unknown = value
-  if (value.graph !== undefined) {
-    if (!isRecord(value.graph)) throw new Error('Project graph must be an object.')
-    graph = {
-      token: value.token,
-      name: value.name,
-      nodes: value.graph.nodes,
-      edges: value.graph.edges
-    }
-  }
+  const source = value.graph === undefined ? value : value.graph
+  if (!isRecord(source)) throw new Error('Project graph must be an object.')
+  const graph: unknown = { token: '', name: value.name, nodes: source.nodes, edges: source.edges }
   validateGraph(graph)
   return graph
+}
+
+/** Only graph fields are shareable; reject credentials pasted into node settings as well. */
+export function publicGraph(input: unknown): {
+  nodes: BotGraphPayload['nodes']
+  edges: BotGraphPayload['edges']
+} {
+  validateGraph(input)
+  const result = { nodes: input.nodes, edges: input.edges }
+  const text = JSON.stringify({ ...result, name: input.name })
+  if (
+    (input.token.trim() && text.includes(input.token.trim())) ||
+    /yb_[a-zA-Z0-9_-]{8,}/.test(text)
+  ) {
+    throw new Error('Remove bot tokens from node settings before saving or exporting.')
+  }
+  return structuredClone(result)
 }
 
 export async function saveProject(
@@ -57,8 +67,7 @@ export async function saveProject(
           version: '1.0.0',
           name: graph.name ?? 'My Yapin Bot',
           savedAt: new Date().toISOString(),
-          token: graph.token,
-          graph: { nodes: graph.nodes, edges: graph.edges }
+          graph: publicGraph(graph)
         },
         null,
         2

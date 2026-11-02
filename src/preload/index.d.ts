@@ -14,7 +14,21 @@ export interface BotGraph {
   version?: string
 }
 
+export interface TokenSettings {
+  success: boolean
+  available: boolean
+  remember: boolean
+  token?: string
+  error?: string
+}
+
 export interface BotApi {
+  getTokenSettings: () => Promise<TokenSettings>
+  setTokenSettings: (token: string, remember: boolean) => Promise<TokenSettings>
+  exportStandalone: (
+    data: BotGraph
+  ) => Promise<{ success: boolean; folderPath?: string; error?: string }>
+
   startBot: (graph: BotGraph) => Promise<{ success: boolean; message?: string }>
   stopBot: () => Promise<{ success: boolean; message?: string }>
   getBotStatus: () => Promise<{ running: boolean }>
