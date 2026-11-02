@@ -19,6 +19,8 @@ import { nodeTypes } from './nodes'
 import { Toolbar } from './components/Toolbar'
 import { NodePalette } from './components/NodePalette'
 import { ConsoleDrawer } from './components/ConsoleDrawer'
+import { TemplatesModal } from './components/TemplatesModal'
+import { BotTemplate } from './templates'
 import { BotNode, BotEdge, PaletteItem, BotLog } from './types'
 
 const INITIAL_NODES: BotNode[] = [
@@ -49,7 +51,7 @@ const INITIAL_NODES: BotNode[] = [
     data: {
       label: 'Log Console',
       level: 'success',
-      message: 'Replied to /ping from @{author}'
+      message: 'Replied to /ping from @{user}'
     }
   },
 
@@ -68,7 +70,7 @@ const INITIAL_NODES: BotNode[] = [
     type: 'textCondition',
     position: { x: 420, y: 320 },
     data: {
-      label: 'Text Filter',
+      label: 'If Message Contains',
       operator: 'contains',
       value: 'yap',
       caseSensitive: false
@@ -80,7 +82,7 @@ const INITIAL_NODES: BotNode[] = [
     position: { x: 760, y: 280 },
     data: {
       label: 'Send Reply',
-      message: 'Did someone say yap? 🗣️ Welcome to our Yapin server, @{author}!'
+      message: 'Did someone say yap? 🗣️ Welcome to our Yapin server, @{user}!'
     }
   }
 ]
@@ -122,6 +124,7 @@ function StudioCanvas(): React.JSX.Element {
   })
   const [isRunning, setIsRunning] = useState<boolean>(false)
   const [isStarting, setIsStarting] = useState<boolean>(false)
+  const [isTemplatesOpen, setIsTemplatesOpen] = useState<boolean>(false)
   const [logs, setLogs] = useState<BotLog[]>([
     {
       timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
@@ -173,17 +176,7 @@ function StudioCanvas(): React.JSX.Element {
 
   // Start / Stop Bot
   const handleToggleBot = async (): Promise<void> => {
-    if (!window.botApi) {
-      setLogs((prev) => [
-        ...prev,
-        {
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-          level: 'warn',
-          message: 'Running outside Electron context (botApi not detected).'
-        }
-      ])
-      return
-    }
+    if (typeof window === 'undefined' || !window.botApi) return
 
     if (isRunning) {
       await window.botApi.stopBot()
@@ -198,7 +191,7 @@ function StudioCanvas(): React.JSX.Element {
         }
         const res = await window.botApi.startBot(payload)
         if (res.success) {
-          setIsRunning((await window.botApi.getBotStatus()).running)
+          setIsRunning(true)
         } else {
           setLogs((prev) => [
             ...prev,
@@ -227,7 +220,7 @@ function StudioCanvas(): React.JSX.Element {
 
   // Save Project
   const handleSaveProject = async (): Promise<void> => {
-    if (!window.botApi) return
+    if (typeof window === 'undefined' || !window.botApi) return
     const res = await window.botApi.saveProject({
       token,
       nodes: nodes as unknown[],
@@ -247,10 +240,12 @@ function StudioCanvas(): React.JSX.Element {
 
   // Load Project
   const handleLoadProject = async (): Promise<void> => {
-    if (!window.botApi) return
+    if (typeof window === 'undefined' || !window.botApi) return
     const res = await window.botApi.loadProject()
     if (res.success && res.data) {
-      handleTokenChange(res.data.token)
+      if (res.data.token) {
+        handleTokenChange(res.data.token)
+      }
       if (res.data.nodes) {
         setNodes(res.data.nodes as BotNode[])
       }
@@ -281,6 +276,21 @@ function StudioCanvas(): React.JSX.Element {
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
         level: 'info',
         message: 'Canvas reset to default example workflows.'
+      }
+    ])
+  }
+
+  // Load starter template
+  const handleSelectTemplate = (template: BotTemplate): void => {
+    setNodes(template.nodes)
+    setEdges(template.edges)
+    setTimeout(() => fitView({ padding: 0.2 }), 50)
+    setLogs((prev) => [
+      ...prev,
+      {
+        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
+        level: 'success',
+        message: `Loaded template: "${template.name}" with ${template.nodes.length} nodes.`
       }
     ])
   }
@@ -343,6 +353,7 @@ function StudioCanvas(): React.JSX.Element {
         onSaveProject={handleSaveProject}
         onLoadProject={handleLoadProject}
         onNewCanvas={handleNewCanvas}
+        onOpenTemplates={() => setIsTemplatesOpen(true)}
       />
 
       <div className="studio-main-body">
@@ -367,7 +378,13 @@ function StudioCanvas(): React.JSX.Element {
             <MiniMap
               nodeColor={(node) => {
                 if (node.type === 'onMessage' || node.type === 'onCommand') return '#a855f7'
-                if (node.type === 'textCondition') return '#06b6d4'
+                if (
+                  node.type === 'textCondition' ||
+                  node.type === 'checkUserRole' ||
+                  node.type === 'cooldownTimer'
+                )
+                  return '#06b6d4'
+                if (node.type === 'setVariable' || node.type === 'getVariable') return '#f59e0b'
                 return '#10b981'
               }}
               maskColor="rgba(11, 15, 25, 0.75)"
@@ -377,6 +394,12 @@ function StudioCanvas(): React.JSX.Element {
       </div>
 
       <ConsoleDrawer logs={logs} onClearLogs={() => setLogs([])} isRunning={isRunning} />
+
+      <TemplatesModal
+        isOpen={isTemplatesOpen}
+        onClose={() => setIsTemplatesOpen(false)}
+        onSelectTemplate={handleSelectTemplate}
+      />
     </div>
   )
 }

@@ -30,6 +30,12 @@ export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+const CONDITION_TYPES = new Set(['textCondition', 'checkUserRole', 'cooldownTimer'])
+
+export function isConditionNode(type: string): boolean {
+  return CONDITION_TYPES.has(type)
+}
+
 /** Validate untrusted IPC and project data before it reaches React Flow or the runner. */
 export function validateGraph(value: unknown): asserts value is BotGraphPayload {
   if (
@@ -83,8 +89,78 @@ export function validateGraph(value: unknown): asserts value is BotGraphPayload 
           throw new Error('Invalid text condition settings.')
         }
         break
+      case 'checkUserRole':
+        if (
+          !['username', 'user_id', 'is_bot'].includes(String(data.checkType)) ||
+          !['equals', 'not_equals', 'contains'].includes(String(data.operator)) ||
+          typeof data.value !== 'string'
+        ) {
+          throw new Error('Invalid check user/role settings.')
+        }
+        break
+      case 'cooldownTimer':
+        if (
+          typeof data.seconds !== 'number' ||
+          !Number.isFinite(data.seconds) ||
+          data.seconds <= 0 ||
+          (data.scope !== undefined && !['user', 'channel', 'global'].includes(String(data.scope)))
+        ) {
+          throw new Error('Cooldown timer requires a positive number of seconds.')
+        }
+        break
+      case 'setVariable':
+        if (
+          typeof data.varName !== 'string' ||
+          !/^[a-zA-Z0-9_-]{1,64}$/.test(data.varName) ||
+          typeof data.value !== 'string' ||
+          (data.operation !== undefined &&
+            !['set', 'increment', 'decrement'].includes(String(data.operation)))
+        ) {
+          throw new Error('Invalid set variable settings.')
+        }
+        break
+      case 'getVariable':
+        if (
+          typeof data.varName !== 'string' ||
+          !/^[a-zA-Z0-9_-]{1,64}$/.test(data.varName) ||
+          (data.fallback !== undefined && typeof data.fallback !== 'string')
+        ) {
+          throw new Error('Invalid get variable settings.')
+        }
+        break
       case 'sendReply':
         if (typeof data.message !== 'string') throw new Error('Send Reply needs message text.')
+        break
+      case 'sendRichMessage':
+        if (
+          (data.title !== undefined && typeof data.title !== 'string') ||
+          (data.description !== undefined && typeof data.description !== 'string') ||
+          (data.color !== undefined && typeof data.color !== 'string')
+        ) {
+          throw new Error('Invalid rich message settings.')
+        }
+        if (!data.title && !data.description) {
+          throw new Error('Send Rich Message requires a title or description.')
+        }
+        break
+      case 'randomReply':
+        if (!Array.isArray(data.replies) && typeof data.replies !== 'string') {
+          throw new Error('Random Reply requires a list of replies.')
+        }
+        break
+      case 'waitDelay':
+        if (
+          typeof data.seconds !== 'number' ||
+          !Number.isFinite(data.seconds) ||
+          data.seconds <= 0
+        ) {
+          throw new Error('Wait delay requires a positive number of seconds.')
+        }
+        break
+      case 'moderateMessage':
+        if (!['delete', 'timeout', 'kick'].includes(String(data.actionType))) {
+          throw new Error('Invalid moderation action settings.')
+        }
         break
       case 'logConsole':
         if (
@@ -115,11 +191,12 @@ export function validateGraph(value: unknown): asserts value is BotGraphPayload 
     }
     const source = nodes.get(edge.source)!
     const target = nodes.get(edge.target)!
+    const isCondition = isConditionNode(String(source.type))
     if (
       target.type === 'onMessage' ||
       target.type === 'onCommand' ||
       (edge.targetHandle != null && edge.targetHandle !== 'in') ||
-      (source.type === 'textCondition'
+      (isCondition
         ? edge.sourceHandle !== 'true' && edge.sourceHandle !== 'false'
         : edge.sourceHandle != null && edge.sourceHandle !== 'out')
     ) {
@@ -139,9 +216,20 @@ type Session = {
   last: string | number
   nodes: Map<string, NodeGraphNode>
   outgoing: Map<string, NodeGraphEdge[]>
+  variables: Map<string, string | number>
+  cooldowns: Map<string, number>
 }
 
-type MessageContext = { author: string; content: string; channel: string; messageId: string }
+type MessageContext = {
+  author: string
+  authorId: string
+  content: string
+  channel: string
+  messageId: string
+  serverId: string
+  authorBot: boolean
+  args: string
+}
 
 class ApiError extends Error {
   constructor(
@@ -237,7 +325,9 @@ export class BotRunner {
         botId: '',
         last: 0,
         nodes: new Map(graph.nodes.map((node) => [node.id, node])),
-        outgoing
+        outgoing,
+        variables: new Map<string, string | number>(),
+        cooldowns: new Map<string, number>()
       }
       this.session = session
       this.log(
@@ -433,6 +523,11 @@ export class BotRunner {
       this.log('warn', '[Runner] Skipped a message without content, channel ID or message ID.')
       return
     }
+
+    const cmdMatch = /^[!/]([a-z0-9_-]+)(?:\s+(.*))?$/i.exec(data.content.trim())
+    const command =
+      typeof data.command === 'string' ? data.command.toLowerCase() : cmdMatch?.[1]?.toLowerCase()
+
     const context: MessageContext = {
       author:
         typeof data.author === 'string'
@@ -440,22 +535,27 @@ export class BotRunner {
           : isRecord(data.author) && typeof data.author.username === 'string'
             ? data.author.username
             : 'Unknown',
+      authorId:
+        typeof data.author_id === 'string'
+          ? data.author_id
+          : isRecord(data.author) && typeof data.author.id === 'string'
+            ? data.author.id
+            : '',
       content: data.content,
       channel: data.channel_id,
-      messageId: data.id
+      messageId: data.id,
+      serverId: typeof data.server_id === 'string' ? data.server_id : 'server',
+      authorBot: data.author_bot === true || (isRecord(data.author) && data.author.bot === true),
+      args: typeof data.args === 'string' ? data.args : (cmdMatch?.[2] ?? '')
     }
-    const authorBot = data.author_bot === true
-    const command =
-      typeof data.command === 'string'
-        ? data.command.toLowerCase()
-        : /^[!/]([a-z0-9_-]+)(?:\s|$)/i.exec(data.content.trim())?.[1].toLowerCase()
+
     for (const node of session.graph.nodes) {
       session.controller.signal.throwIfAborted()
       const matches =
         node.type === 'onMessage'
-          ? !(node.data.ignoreBots && authorBot)
+          ? !(node.data.ignoreBots && context.authorBot)
           : node.type === 'onCommand' &&
-            !authorBot &&
+            !context.authorBot &&
             (!data.command_for || data.command_for === session.botId) &&
             command === node.data.commandName
       if (!matches) continue
@@ -464,11 +564,16 @@ export class BotRunner {
     }
   }
 
-  private template(text: string, context: MessageContext): string {
-    return text.replace(
-      /\{(author|content|channel)\}/gi,
-      (_, key: string) => context[key.toLowerCase() as 'author' | 'content' | 'channel']
-    )
+  private template(text: string, context: MessageContext, session: Session): string {
+    return text
+      .replace(/\{(author|user)\}/gi, () => context.author)
+      .replace(/\{content\}/gi, () => context.content)
+      .replace(/\{channel\}/gi, () => context.channel)
+      .replace(/\{args\}/gi, () => context.args)
+      .replace(/\{var:([a-zA-Z0-9_-]+)\}/gi, (_, varName: string) => {
+        const val = session.variables.get(varName)
+        return val !== undefined ? String(val) : ''
+      })
   }
 
   private async execute(
@@ -502,8 +607,83 @@ export class BotRunner {
                   : content.includes(value)
           handle = match ? 'true' : 'false'
           this.log('info', `[Condition] ${node.id}: ${handle}`)
+        } else if (node.type === 'checkUserRole') {
+          const checkType = String(node.data.checkType ?? 'username')
+          const operator = String(node.data.operator ?? 'equals')
+          const targetValue = String(node.data.value ?? '')
+            .toLowerCase()
+            .trim()
+
+          let match = false
+          if (checkType === 'is_bot') {
+            match = context.authorBot === true
+          } else if (checkType === 'username') {
+            const author = context.author.toLowerCase()
+            match =
+              operator === 'equals'
+                ? author === targetValue
+                : operator === 'not_equals'
+                  ? author !== targetValue
+                  : author.includes(targetValue)
+          } else if (checkType === 'user_id') {
+            const authorId = context.authorId.toLowerCase()
+            match =
+              operator === 'equals'
+                ? authorId === targetValue
+                : operator === 'not_equals'
+                  ? authorId !== targetValue
+                  : authorId.includes(targetValue)
+          }
+          handle = match ? 'true' : 'false'
+          this.log('info', `[Check User] ${node.id}: ${handle}`)
+        } else if (node.type === 'cooldownTimer') {
+          const seconds = Math.max(0.1, Number(node.data.seconds ?? 5))
+          const scope = String(node.data.scope ?? 'user')
+          const key = `${node.id}:${
+            scope === 'user'
+              ? context.authorId || context.author
+              : scope === 'channel'
+                ? context.channel
+                : 'global'
+          }`
+          const lastTime = session.cooldowns.get(key) ?? 0
+          const now = Date.now()
+          const elapsed = (now - lastTime) / 1000
+
+          if (elapsed >= seconds) {
+            session.cooldowns.set(key, now)
+            handle = 'true'
+          } else {
+            handle = 'false'
+          }
+          this.log(
+            'info',
+            `[Cooldown] ${node.id}: ${handle} (${elapsed.toFixed(1)}s / ${seconds}s)`
+          )
+        } else if (node.type === 'setVariable') {
+          const varName = String(node.data.varName)
+          const operation = String(node.data.operation ?? 'set')
+          const expandedVal = this.template(String(node.data.value ?? ''), context, session)
+
+          if (operation === 'increment') {
+            const current = Number(session.variables.get(varName) ?? 0)
+            const add = Number(expandedVal) || 1
+            session.variables.set(varName, current + add)
+          } else if (operation === 'decrement') {
+            const current = Number(session.variables.get(varName) ?? 0)
+            const sub = Number(expandedVal) || 1
+            session.variables.set(varName, current - sub)
+          } else {
+            session.variables.set(varName, expandedVal)
+          }
+          this.log('info', `[Variable] ${varName} = ${session.variables.get(varName)}`)
+        } else if (node.type === 'getVariable') {
+          const varName = String(node.data.varName)
+          const fallback = String(node.data.fallback ?? '')
+          const val = session.variables.get(varName) ?? fallback
+          this.log('info', `[Get Variable] ${varName} = ${val}`)
         } else if (node.type === 'sendReply') {
-          const content = this.template(String(node.data.message), context)
+          const content = this.template(String(node.data.message), context, session)
           if (!content.trim() || content.length > 2000)
             throw new Error('Reply must contain 1–2000 characters after template expansion.')
           await this.request(
@@ -516,10 +696,104 @@ export class BotRunner {
             }
           )
           this.log('success', `[Send Reply] Delivered to channel ${context.channel}`)
+        } else if (node.type === 'sendRichMessage') {
+          const title = node.data.title
+            ? this.template(String(node.data.title), context, session)
+            : undefined
+          const description = node.data.description
+            ? this.template(String(node.data.description), context, session)
+            : undefined
+          const color = node.data.color ? String(node.data.color) : '#3b82f6'
+          const footer = node.data.footer
+            ? this.template(String(node.data.footer), context, session)
+            : undefined
+          const imageUrl = node.data.imageUrl
+            ? this.template(String(node.data.imageUrl), context, session)
+            : undefined
+
+          const embed: Record<string, unknown> = {}
+          if (title) embed.title = title
+          if (description) embed.description = description
+          if (color) embed.color = color
+          if (footer) embed.footer = { text: footer }
+          if (imageUrl) embed.image = { url: imageUrl }
+
+          await this.request(
+            session,
+            'POST',
+            `/channels/${encodeURIComponent(context.channel)}/messages`,
+            {
+              embeds: [embed],
+              reply_to: context.messageId
+            }
+          )
+          this.log('success', `[Send Rich Message] Delivered card to channel ${context.channel}`)
+        } else if (node.type === 'randomReply') {
+          let lines: string[]
+          if (Array.isArray(node.data.replies)) {
+            lines = node.data.replies.map(String).filter((s) => s.trim().length > 0)
+          } else {
+            lines = String(node.data.replies ?? '')
+              .split('\n')
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0)
+          }
+          if (lines.length === 0) lines = ['Hello!']
+          const chosen = lines[Math.floor(Math.random() * lines.length)]
+          const content = this.template(chosen, context, session)
+
+          await this.request(
+            session,
+            'POST',
+            `/channels/${encodeURIComponent(context.channel)}/messages`,
+            {
+              content,
+              reply_to: context.messageId
+            }
+          )
+          this.log('success', `[Random Reply] Picked & sent: "${content}"`)
+        } else if (node.type === 'waitDelay') {
+          const seconds = Math.min(30, Math.max(0.1, Number(node.data.seconds ?? 1)))
+          this.log('info', `[Wait] Pausing for ${seconds}s...`)
+          await wait(seconds * 1000, session.controller.signal)
+        } else if (node.type === 'moderateMessage') {
+          const actionType = String(node.data.actionType ?? 'delete')
+          if (actionType === 'delete') {
+            await this.request(
+              session,
+              'DELETE',
+              `/channels/${encodeURIComponent(context.channel)}/messages/${encodeURIComponent(context.messageId)}`
+            )
+            this.log('success', `[Moderate] Deleted message ${context.messageId}`)
+          } else if (actionType === 'timeout') {
+            const minutes = Number(node.data.minutes ?? 10)
+            const reason = node.data.reason ? String(node.data.reason) : 'Automated rule moderation'
+            await this.request(
+              session,
+              'POST',
+              `/servers/${encodeURIComponent(context.serverId)}/timeouts`,
+              {
+                user_id: context.authorId,
+                minutes,
+                reason
+              }
+            )
+            this.log('success', `[Moderate] Timed out @${context.author} for ${minutes}m`)
+          } else if (actionType === 'kick') {
+            await this.request(
+              session,
+              'POST',
+              `/servers/${encodeURIComponent(context.serverId)}/kick`,
+              {
+                user_id: context.authorId
+              }
+            )
+            this.log('success', `[Moderate] Kicked @${context.author}`)
+          }
         } else if (node.type === 'logConsole') {
           this.log(
             node.data.level as BotLogPayload['level'],
-            this.template(String(node.data.message), context)
+            this.template(String(node.data.message), context, session)
           )
         }
       } catch (error: unknown) {

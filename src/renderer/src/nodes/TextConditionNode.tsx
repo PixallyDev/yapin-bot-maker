@@ -43,7 +43,7 @@ export const TextConditionNode: React.FC<NodeProps<Node<TextConditionData>>> = (
         <div className="node-icon condition-icon">🔍</div>
         <div className="node-title-group">
           <span className="node-badge condition-badge">CONDITION</span>
-          <span className="node-title">Text Filter</span>
+          <span className="node-title">If Message Contains</span>
         </div>
       </div>
 

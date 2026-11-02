@@ -6,6 +6,7 @@ interface NodePaletteProps {
 }
 
 const PALETTE_ITEMS: PaletteItem[] = [
+  // Triggers
   {
     type: 'onMessage',
     category: 'trigger',
@@ -29,19 +30,75 @@ const PALETTE_ITEMS: PaletteItem[] = [
       description: 'Replies with pong'
     }
   },
+
+  // Conditions
   {
     type: 'textCondition',
     category: 'condition',
-    title: 'Text Contains / Equals',
-    description: 'Tests if message matches a rule with True/False branches',
+    title: 'If Message Contains',
+    description: 'Tests if message content matches text with True/False branches',
     icon: '🔍',
     defaultData: {
-      label: 'Text Filter',
+      label: 'If Message Contains',
       operator: 'contains',
       value: 'hello',
       caseSensitive: false
     }
   },
+  {
+    type: 'checkUserRole',
+    category: 'condition',
+    title: 'Check User / Role',
+    description: 'Checks author username, user ID, or if bot account',
+    icon: '🛡️',
+    defaultData: {
+      label: 'Check User',
+      checkType: 'username',
+      operator: 'equals',
+      value: 'admin'
+    }
+  },
+  {
+    type: 'cooldownTimer',
+    category: 'condition',
+    title: 'Cooldown Timer',
+    description: 'Rate-limits actions per user, channel, or globally',
+    icon: '⏱️',
+    defaultData: {
+      label: 'Cooldown',
+      seconds: 5,
+      scope: 'user'
+    }
+  },
+
+  // Variables
+  {
+    type: 'setVariable',
+    category: 'variable',
+    title: 'Set Variable',
+    description: 'Stores or increments a value in bot session memory',
+    icon: '💾',
+    defaultData: {
+      label: 'Set Variable',
+      varName: 'score',
+      value: '1',
+      operation: 'set'
+    }
+  },
+  {
+    type: 'getVariable',
+    category: 'variable',
+    title: 'Get Variable',
+    description: 'Reads a variable with a fallback default',
+    icon: '📥',
+    defaultData: {
+      label: 'Get Variable',
+      varName: 'score',
+      fallback: '0'
+    }
+  },
+
+  // Actions
   {
     type: 'sendReply',
     category: 'action',
@@ -50,7 +107,56 @@ const PALETTE_ITEMS: PaletteItem[] = [
     icon: '💬',
     defaultData: {
       label: 'Send Reply',
-      message: 'Hello {author}! Received your message.'
+      message: 'Hello {user}! Received your message.'
+    }
+  },
+  {
+    type: 'sendRichMessage',
+    category: 'action',
+    title: 'Send Rich Card',
+    description: 'Sends an embed card with title, description, and color',
+    icon: '🎴',
+    defaultData: {
+      label: 'Send Rich Card',
+      title: 'Announcement',
+      description: 'Welcome {user} to the community!',
+      color: '#3b82f6',
+      footer: 'Yapin Bot'
+    }
+  },
+  {
+    type: 'randomReply',
+    category: 'action',
+    title: 'Random Reply',
+    description: 'Randomly picks 1 reply from a list of options',
+    icon: '🎲',
+    defaultData: {
+      label: 'Random Reply',
+      replies: 'Yes, absolutely!\nNo way.\nAsk again later, {user}.\nSigns point to yes!'
+    }
+  },
+  {
+    type: 'waitDelay',
+    category: 'action',
+    title: 'Wait / Delay',
+    description: 'Pauses execution for a specified number of seconds',
+    icon: '⏳',
+    defaultData: {
+      label: 'Wait',
+      seconds: 2
+    }
+  },
+  {
+    type: 'moderateMessage',
+    category: 'action',
+    title: 'Delete / Moderate',
+    description: 'Deletes message, or times out / kicks the author',
+    icon: '🔨',
+    defaultData: {
+      label: 'Moderate',
+      actionType: 'delete',
+      minutes: 10,
+      reason: 'Rule violation'
     }
   },
   {
@@ -62,7 +168,7 @@ const PALETTE_ITEMS: PaletteItem[] = [
     defaultData: {
       label: 'Log Console',
       level: 'info',
-      message: 'Processed event from {author}: {content}'
+      message: 'Processed event from {user}: {content}'
     }
   }
 ]
@@ -75,6 +181,7 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode }) => {
 
   const triggers = PALETTE_ITEMS.filter((item) => item.category === 'trigger')
   const conditions = PALETTE_ITEMS.filter((item) => item.category === 'condition')
+  const variables = PALETTE_ITEMS.filter((item) => item.category === 'variable')
   const actions = PALETTE_ITEMS.filter((item) => item.category === 'action')
 
   return (
@@ -139,6 +246,33 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode }) => {
           </div>
         </section>
 
+        {/* VARIABLES */}
+        <section className="palette-section">
+          <div className="section-label-group variable-group">
+            <span className="section-dot variable-dot" />
+            <h4 className="section-title">Variables</h4>
+            <span className="section-count">{variables.length}</span>
+          </div>
+          <div className="palette-list">
+            {variables.map((item) => (
+              <div
+                key={item.type}
+                className="palette-card variable-card"
+                draggable
+                onDragStart={(e) => onDragStart(e, item)}
+                onClick={() => onAddNode(item)}
+              >
+                <div className="palette-card-top">
+                  <span className="palette-card-icon">{item.icon}</span>
+                  <span className="palette-card-name">{item.title}</span>
+                  <span className="palette-add-hint">+</span>
+                </div>
+                <p className="palette-card-desc">{item.description}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {/* ACTIONS */}
         <section className="palette-section">
           <div className="section-label-group action-group">
@@ -171,8 +305,8 @@ export const NodePalette: React.FC<NodePaletteProps> = ({ onAddNode }) => {
         <div className="yapper-doc-tip">
           <span className="doc-tip-icon">💡</span>
           <p className="doc-tip-text">
-            Connect <strong>Trigger</strong> &rarr; <strong>Condition</strong> &rarr;{' '}
-            <strong>Action</strong> to build workflows.
+            Use variables like <code>{'{user}'}</code> and <code>{'{args}'}</code> to personalize
+            bot responses!
           </p>
         </div>
       </div>

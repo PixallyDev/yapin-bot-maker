@@ -9,6 +9,7 @@ interface ToolbarProps {
   onSaveProject: () => void
   onLoadProject: () => void
   onNewCanvas: () => void
+  onOpenTemplates: () => void
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -19,7 +20,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onToggleBot,
   onSaveProject,
   onLoadProject,
-  onNewCanvas
+  onNewCanvas,
+  onOpenTemplates
 }) => {
   const [showToken, setShowToken] = useState(false)
 
@@ -68,6 +70,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
       <div className="toolbar-right">
         <div className="project-actions-group">
+          <button
+            type="button"
+            className="toolbar-btn btn-templates"
+            onClick={onOpenTemplates}
+            title="Browse starter bot templates"
+          >
+            <span>📦</span> Templates
+          </button>
           <button
             type="button"
             className="toolbar-btn btn-secondary"

@@ -419,3 +419,61 @@ test('Stop interrupts a rate-limit wait without executing queued nodes', async (
   assert.equal(instance.getStatus().running, false)
   assert.ok(!logs.some((log) => log.message === 'SHOULD NOT RUN'))
 })
+
+test('checkUserRole, cooldownTimer, setVariable, sendRichMessage and moderateMessage execute cleanly', async () => {
+  const calls = api([
+    message(11, 'admin test', { author: 'AdminUser' }),
+    message(12, 'spam test', { author: 'Spammer' })
+  ])
+  const { instance } = runner()
+  const result = await instance.start(
+    graph(
+      [
+        trigger(),
+        node('roleCheck', 'checkUserRole', {
+          checkType: 'username',
+          operator: 'equals',
+          value: 'adminuser'
+        }),
+        node('adminCard', 'sendRichMessage', {
+          title: 'Admin Alert',
+          description: 'Welcome {user}',
+          color: '#10b981'
+        }),
+        node('setVar', 'setVariable', {
+          varName: 'spam_count',
+          value: '1',
+          operation: 'increment'
+        }),
+        node('cooldown', 'cooldownTimer', { seconds: 10, scope: 'user' }),
+        node('deleteMsg', 'moderateMessage', { actionType: 'delete' }),
+        node('warnReply', 'randomReply', { replies: ['Warning {user}! Count: {var:spam_count}'] }),
+        node('onCooldown', 'logConsole', { message: 'On cooldown {user}', level: 'warn' })
+      ],
+      [
+        edge('trigger', 'roleCheck'),
+        edge('roleCheck', 'adminCard', 'true'),
+        edge('roleCheck', 'setVar', 'false'),
+        edge('setVar', 'cooldown'),
+        edge('cooldown', 'deleteMsg', 'true'),
+        edge('deleteMsg', 'warnReply'),
+        edge('cooldown', 'onCooldown', 'false')
+      ]
+    )
+  )
+  assert.equal(result.success, true)
+  await until(() => calls.some((c) => c.method === 'DELETE'))
+  assert.ok(
+    calls.some(
+      (c) =>
+        c.method === 'POST' &&
+        c.path.includes('/messages') &&
+        JSON.parse(c.body).embeds?.[0]?.title === 'Admin Alert'
+    )
+  )
+  assert.ok(calls.some((c) => c.method === 'DELETE' && c.path.includes('/msg-12')))
+  assert.ok(
+    calls.some((c) => c.method === 'POST' && JSON.parse(c.body).content?.includes('Count: 1'))
+  )
+  await instance.stop()
+})

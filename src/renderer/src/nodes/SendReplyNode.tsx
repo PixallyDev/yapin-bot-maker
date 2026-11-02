@@ -1,6 +1,7 @@
 import React from 'react'
 import { Handle, Position, NodeProps, Node, useReactFlow } from '@xyflow/react'
 import { SendReplyData } from '../types'
+import { VariablePills } from '../components/VariablePills'
 
 export const SendReplyNode: React.FC<NodeProps<Node<SendReplyData>>> = ({ id, data, selected }) => {
   const { setNodes } = useReactFlow()
@@ -9,6 +10,14 @@ export const SendReplyNode: React.FC<NodeProps<Node<SendReplyData>>> = ({ id, da
     const val = e.target.value
     setNodes((nodes) =>
       nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, message: val } } : n))
+    )
+  }
+
+  const handleInsertPill = (pill: string): void => {
+    const current = String(data.message ?? '')
+    const updated = current ? `${current} ${pill}` : pill
+    setNodes((nodes) =>
+      nodes.map((n) => (n.id === id ? { ...n, data: { ...n.data, message: updated } } : n))
     )
   }
 
@@ -33,9 +42,6 @@ export const SendReplyNode: React.FC<NodeProps<Node<SendReplyData>>> = ({ id, da
         <div className="node-field">
           <div className="field-header">
             <label className="node-field-label">Reply Content</label>
-            <span className="field-hint">
-              Vars: {'{author}'}, {'{content}'}
-            </span>
           </div>
           <textarea
             className="node-textarea nodrag nopan"
@@ -44,6 +50,7 @@ export const SendReplyNode: React.FC<NodeProps<Node<SendReplyData>>> = ({ id, da
             onChange={handleMessageChange}
             placeholder="Type bot response..."
           />
+          <VariablePills onInsert={handleInsertPill} />
         </div>
       </div>
 
