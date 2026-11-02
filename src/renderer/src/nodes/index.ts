@@ -1,4 +1,6 @@
 import { NodeTypes } from '@xyflow/react'
+import { NODE_CATALOG } from '../data/nodeCatalog'
+import { CatalogNode } from './CatalogNode'
 import { OnMessageNode } from './OnMessageNode'
 import { OnCommandNode } from './OnCommandNode'
 import { TextConditionNode } from './TextConditionNode'
@@ -12,8 +14,10 @@ import { RandomReplyNode } from './RandomReplyNode'
 import { WaitDelayNode } from './WaitDelayNode'
 import { ModerateMessageNode } from './ModerateMessageNode'
 import { LogConsoleNode } from './LogConsoleNode'
+import { JavascriptCodeNode } from './JavascriptCodeNode'
 
 export const nodeTypes: NodeTypes = {
+  ...Object.fromEntries(NODE_CATALOG.map((entry) => [entry.type, CatalogNode])),
   onMessage: OnMessageNode,
   onCommand: OnCommandNode,
   textCondition: TextConditionNode,
@@ -26,7 +30,8 @@ export const nodeTypes: NodeTypes = {
   randomReply: RandomReplyNode,
   waitDelay: WaitDelayNode,
   moderateMessage: ModerateMessageNode,
-  logConsole: LogConsoleNode
+  logConsole: LogConsoleNode,
+  javascriptCode: JavascriptCodeNode
 }
 
 export {
@@ -42,5 +47,6 @@ export {
   RandomReplyNode,
   WaitDelayNode,
   ModerateMessageNode,
-  LogConsoleNode
+  LogConsoleNode,
+  JavascriptCodeNode
 }

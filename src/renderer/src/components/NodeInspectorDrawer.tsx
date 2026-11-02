@@ -1,6 +1,9 @@
 import React from 'react'
+import { ToggleSwitch } from './ToggleSwitch'
 import { BotNode, CustomNodeData } from '../types'
 import { VariablePills } from './VariablePills'
+import { Icon } from './Icon'
+import { useProjectPrefix, normalizeCommandName } from '../projectStore'
 
 interface NodeInspectorDrawerProps {
   selectedNode: BotNode | null
@@ -8,6 +11,7 @@ interface NodeInspectorDrawerProps {
   onUpdateData: (nodeId: string, patch: Partial<CustomNodeData>) => void
   onDuplicateNode: (node: BotNode) => void
   onDeleteNode: (nodeId: string) => void
+  onOpenFullEditor?: (node: BotNode) => void
 }
 
 export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
@@ -15,8 +19,10 @@ export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
   onClose,
   onUpdateData,
   onDuplicateNode,
-  onDeleteNode
+  onDeleteNode,
+  onOpenFullEditor
 }) => {
+  const prefix = useProjectPrefix()
   if (!selectedNode) return null
 
   const { id, type, data } = selectedNode
@@ -33,15 +39,15 @@ export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
 
   const getCategoryInfo = (): { label: string; colorClass: string; icon: string } => {
     if (type === 'onMessage' || type === 'onCommand') {
-      return { label: 'TRIGGER', colorClass: 'badge-trigger', icon: '⚡' }
+      return { label: 'TRIGGER', colorClass: 'badge-trigger', icon: 'Zap' }
     }
     if (type === 'textCondition' || type === 'checkUserRole' || type === 'cooldownTimer') {
-      return { label: 'CONDITION', colorClass: 'badge-condition', icon: '🔍' }
+      return { label: 'CONDITION', colorClass: 'badge-condition', icon: 'Search' }
     }
     if (type === 'setVariable' || type === 'getVariable') {
-      return { label: 'VARIABLE', colorClass: 'badge-variable', icon: '💾' }
+      return { label: 'VARIABLE', colorClass: 'badge-variable', icon: 'Save' }
     }
-    return { label: 'ACTION', colorClass: 'badge-action', icon: '⚙️' }
+    return { label: 'ACTION', colorClass: 'badge-action', icon: 'Settings' }
   }
 
   const category = getCategoryInfo()
@@ -50,7 +56,9 @@ export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
     <aside className="node-inspector-drawer nodrag nopan">
       <div className="inspector-header">
         <div className="inspector-title-group">
-          <span className="inspector-icon">{category.icon}</span>
+          <span className="inspector-icon">
+            <Icon name={category.icon} />
+          </span>
           <div>
             <div className="inspector-badge-row">
               <span className={`inspector-badge ${category.colorClass}`}>{category.label}</span>
@@ -59,14 +67,26 @@ export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
             <h3 className="inspector-title">{String(data.label || type)}</h3>
           </div>
         </div>
-        <button
-          type="button"
-          className="inspector-close-btn"
-          onClick={onClose}
-          title="Close Inspector"
-        >
-          ✕
-        </button>
+        <div className="inspector-header-actions">
+          {onOpenFullEditor && (
+            <button
+              type="button"
+              className="inspector-expand-btn"
+              onClick={() => onOpenFullEditor(selectedNode)}
+              title="Open Rich Node Editor Modal"
+            >
+              <Icon name="Maximize2" size={14} />
+            </button>
+          )}
+          <button
+            type="button"
+            className="inspector-close-btn"
+            onClick={onClose}
+            title="Close Inspector"
+          >
+            <Icon name="X" />
+          </button>
+        </div>
       </div>
 
       <div className="inspector-body">
@@ -88,20 +108,23 @@ export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
             <div className="inspector-section">
               <label className="inspector-label">Command Name</label>
               <div className="command-input-wrapper">
-                <span className="command-prefix">/</span>
+                <span className="command-prefix">{prefix}</span>
                 <input
                   type="text"
                   className="inspector-input"
                   value={String(data.commandName ?? 'ping')}
                   onChange={(e) =>
                     update({
-                      commandName: e.target.value.replace(/[^a-zA-Z0-9_-]/g, '').toLowerCase()
+                      commandName: normalizeCommandName(e.target.value, prefix)
                     })
                   }
                   placeholder="command_name"
                 />
               </div>
-              <span className="field-hint">Registered in server slash / menu</span>
+              <span className="field-hint">
+                Triggered via {prefix}
+                {normalizeCommandName(data.commandName ?? 'ping', prefix) || 'ping'}
+              </span>
             </div>
             <div className="inspector-section">
               <label className="inspector-label">Description</label>
@@ -120,10 +143,10 @@ export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
         {type === 'onMessage' && (
           <div className="inspector-section">
             <label className="inspector-checkbox-label">
-              <input
-                type="checkbox"
+              <ToggleSwitch
                 checked={data.ignoreBots !== false}
-                onChange={(e) => update({ ignoreBots: e.target.checked })}
+                onChange={(v) => update({ ignoreBots: v })}
+                label="Ignore bots"
               />
               <span>Ignore messages from bots and webhooks</span>
             </label>
@@ -158,10 +181,10 @@ export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
             </div>
             <div className="inspector-section">
               <label className="inspector-checkbox-label">
-                <input
-                  type="checkbox"
+                <ToggleSwitch
                   checked={Boolean(data.caseSensitive)}
-                  onChange={(e) => update({ caseSensitive: e.target.checked })}
+                  onChange={(v) => update({ caseSensitive: v })}
+                  label="Case sensitive"
                 />
                 <span>Case sensitive comparison</span>
               </label>
@@ -492,10 +515,16 @@ export const NodeInspectorDrawer: React.FC<NodeInspectorDrawerProps> = ({
           className="inspector-btn btn-duplicate"
           onClick={() => onDuplicateNode(selectedNode)}
         >
-          <span>📋</span> Duplicate
+          <span>
+            <Icon name="Copy" />
+          </span>{' '}
+          Duplicate
         </button>
         <button type="button" className="inspector-btn btn-delete" onClick={() => onDeleteNode(id)}>
-          <span>🗑️</span> Delete
+          <span>
+            <Icon name="Trash2" />
+          </span>{' '}
+          Delete
         </button>
       </div>
     </aside>

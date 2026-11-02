@@ -1,8 +1,7 @@
 import { resolve } from 'path'
-import { readFileSync } from 'node:fs'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
-import ts from 'typescript'
+import { standaloneRuntime } from './build/standaloneRuntime'
 
 export default defineConfig({
   main: {
@@ -16,10 +15,16 @@ export default defineConfig({
           if (id !== '\0virtual:bot-runtime') return
           const source = resolve('src/main/botRunner.ts')
           this.addWatchFile(source)
-          const { outputText } = ts.transpileModule(readFileSync(source, 'utf8'), {
-            compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 }
-          })
-          return `export default ${JSON.stringify(outputText)}`
+          for (const path of [
+            'src/renderer/src/data/nodeCatalog.ts',
+            'src/shared/graph.ts',
+            'src/shared/nodeSupport.ts',
+            'src/main/runtimeStorage.ts',
+            'src/main/runtimeValues.ts',
+            'src/main/catalogRuntime.ts'
+          ])
+            this.addWatchFile(resolve(path))
+          return `export default ${JSON.stringify(standaloneRuntime())}`
         }
       }
     ]

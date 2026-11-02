@@ -1,14 +1,27 @@
-import { app, shell, BrowserWindow, ipcMain } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, ipcMain, dialog } from 'electron'
+import { join, dirname, isAbsolute } from 'path'
+import { existsSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { isRecord } from '../shared/graph'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { BotRunner, type BotLogPayload } from './botRunner'
 import { saveProject, loadProject } from './projectFiles'
 import { TokenStore } from './tokenStore'
 import { exportStandalone } from './standaloneExport'
+import { setupAuthHandlers, closeActiveAuthServer } from './authHandler'
 
 let mainWindow: BrowserWindow | null = null
 let botRunner: BotRunner | null = null
+
+// Preserve existing projects and preferences when upgrading from the previous app name.
+const existingUserData = [
+  app.getPath('userData'),
+  join(app.getPath('appData'), 'Yapin Bot Maker'),
+  join(app.getPath('appData'), 'ybm')
+].find((path) => existsSync(path))
+app.setName('Yapper Maker')
+if (existingUserData) app.setPath('userData', existingUserData)
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -17,10 +30,10 @@ function createWindow(): void {
     minWidth: 1000,
     minHeight: 680,
     show: false,
-    title: 'Yapin Bot Maker',
+    title: 'Yapper Maker',
     backgroundColor: '#0b0f19',
     autoHideMenuBar: true,
-    ...(process.platform === 'linux' ? { icon } : {}),
+    icon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -64,15 +77,18 @@ app.whenReady().then(() => {
     }
   }
 
-  botRunner = new BotRunner(emitLog, emitStatus)
+  botRunner = new BotRunner(emitLog, emitStatus, {
+    projectDirectory: join(app.getPath('userData'), 'projects', 'default')
+  })
+  setupAuthHandlers(() => mainWindow)
 
   const tokens = new TokenStore(app.getPath('userData'))
   ipcMain.handle('bot:get-token-settings', () => tokens.get())
   ipcMain.handle('bot:set-token-settings', (_event, token: unknown, remember: unknown) =>
     tokens.set(token, remember)
   )
-  ipcMain.handle('bot:export-standalone', async (_event, graph: unknown) => {
-    const result = await exportStandalone(mainWindow, graph)
+  ipcMain.handle('bot:export-standalone', async (_event, graph: unknown, liveDir?: unknown) => {
+    const result = await exportStandalone(mainWindow, graph, liveDir)
     if (result.success)
       emitLog({
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
@@ -87,6 +103,23 @@ app.whenReady().then(() => {
     if (!botRunner) {
       return { success: false, message: 'Bot runner not initialized' }
     }
+    const projectFile =
+      isRecord(graph) && typeof graph.projectFilePath === 'string' ? graph.projectFilePath : ''
+    const projectId = isRecord(graph)
+      ? String(graph.projectId ?? graph.name ?? 'default')
+      : 'default'
+    const projectDirectory =
+      projectFile &&
+      isAbsolute(projectFile) &&
+      projectFile.endsWith('.yapbot.json') &&
+      existsSync(projectFile)
+        ? dirname(projectFile)
+        : join(
+            app.getPath('userData'),
+            'projects',
+            createHash('sha256').update(projectId).digest('hex').slice(0, 24)
+          )
+    botRunner.configureRuntime({ projectDirectory })
     return await botRunner.start(graph)
   })
 
@@ -101,8 +134,8 @@ app.whenReady().then(() => {
     return botRunner ? botRunner.getStatus() : { running: false }
   })
 
-  ipcMain.handle('bot:save-project', async (_event, graph: unknown) => {
-    const result = await saveProject(mainWindow, graph)
+  ipcMain.handle('bot:save-project', async (_event, graph: unknown, defaultDir?: unknown) => {
+    const result = await saveProject(mainWindow, graph, defaultDir)
     if (result.success)
       emitLog({
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
@@ -112,8 +145,33 @@ app.whenReady().then(() => {
     return result
   })
 
-  ipcMain.handle('bot:load-project', async () => {
-    const result = await loadProject(mainWindow)
+  ipcMain.handle('bot:get-variables', () => (botRunner ? botRunner.getVariables() : {}))
+
+  ipcMain.handle('bot:clear-variables', () => {
+    botRunner?.clearVariables()
+    return { success: true }
+  })
+
+  ipcMain.handle('bot:set-options', (_event, options: unknown) => {
+    botRunner?.setOptions(options)
+    return { success: true }
+  })
+
+  ipcMain.handle('app:choose-folder', async (_event, current?: unknown) => {
+    const options: Electron.OpenDialogOptions = {
+      title: 'Choose default project folder',
+      defaultPath: typeof current === 'string' && current ? current : undefined,
+      properties: ['openDirectory', 'createDirectory']
+    }
+    const result = mainWindow
+      ? await dialog.showOpenDialog(mainWindow, options)
+      : await dialog.showOpenDialog(options)
+    if (result.canceled || !result.filePaths.length) return { success: false }
+    return { success: true, folderPath: result.filePaths[0] }
+  })
+
+  ipcMain.handle('bot:load-project', async (_event, defaultDir?: unknown) => {
+    const result = await loadProject(mainWindow, defaultDir)
     if (result.success)
       emitLog({
         timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
@@ -131,6 +189,7 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
+  void closeActiveAuthServer()
   if (botRunner) {
     botRunner.stop().catch(() => {})
   }

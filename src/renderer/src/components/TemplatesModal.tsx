@@ -1,5 +1,6 @@
 import React from 'react'
 import { PRESET_TEMPLATES, BotTemplate } from '../templates'
+import { Icon } from './Icon'
 
 interface TemplatesModalProps {
   isOpen: boolean
@@ -19,14 +20,16 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
       <div className="templates-modal" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <div className="modal-title-group">
-            <span className="modal-icon">📦</span>
+            <span className="modal-icon">
+              <Icon name="Package" />
+            </span>
             <div>
               <h2 className="modal-title">Starter Bot Templates</h2>
               <p className="modal-subtitle">Pick a pre-configured node graph to build on</p>
             </div>
           </div>
           <button type="button" className="modal-close-btn" onClick={onClose}>
-            ✕
+            <Icon name="X" />
           </button>
         </div>
 
@@ -34,7 +37,9 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
           {PRESET_TEMPLATES.map((tmpl) => (
             <div key={tmpl.id} className="template-card">
               <div className="template-card-header">
-                <span className="template-icon">{tmpl.icon}</span>
+                <span className="template-icon">
+                  <Icon name={tmpl.icon} />
+                </span>
                 <div>
                   <h3 className="template-name">{tmpl.name}</h3>
                   <span className="template-tag">{tmpl.tag}</span>

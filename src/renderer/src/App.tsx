@@ -1,6 +1,9 @@
 import { FlowManager } from './components/FlowManager'
+import { cleanProjectGraph } from '../../shared/nodeSupport'
+import { AddNodeMenu } from './components/AddNodeMenu'
+import { CATALOG_BY_TYPE } from './data/nodeCatalog'
 import { Flow, Folder, newFlow, defaultFolders } from './flows'
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -12,7 +15,8 @@ import {
   addEdge,
   Connection,
   useReactFlow,
-  BackgroundVariant
+  BackgroundVariant,
+  SelectionMode
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './assets/studio.css'
@@ -21,17 +25,34 @@ import { nodeTypes } from './nodes'
 import { Sidebar, NavTabId } from './components/Sidebar'
 import { Toolbar } from './components/Toolbar'
 import { NodePalette } from './components/NodePalette'
-import { ConsoleDrawer } from './components/ConsoleDrawer'
+import { DebugPanel } from './components/DebugPanel'
+import { LiveDebugModal, LiveVariablesModal } from './components/DebugModals'
+import { InfoModal } from './components/InfoModal'
+import { PreferencesModal, type InfoKind } from './components/PreferencesModal'
+import { PreferencesProvider } from './components/PreferencesProvider'
+import { ProjectProvider } from './components/ProjectProvider'
+import { normalizeCommandName } from './projectStore'
+import { analyzeFlows, type FlowIssue } from './issuesAnalyzer'
 import { TemplatesModal } from './components/TemplatesModal'
 import { NodeInspectorDrawer } from './components/NodeInspectorDrawer'
-import { PreferencesModal } from './components/PreferencesModal'
+import { NodeEditorModal } from './components/NodeEditorModal'
+import { ContextMenu, ContextMenuTarget } from './components/ContextMenu'
 import { AccountModal } from './components/AccountModal'
+import { ProfileDropdown } from './components/ProfileDropdown'
+import { InboxModal } from './components/InboxModal'
+import { AccountProvider } from './components/AccountProvider'
+import { usePreferences } from './preferencesStore'
+import { FloatingSelectionBar } from './components/FloatingSelectionBar'
+import { ShareToFriendModal } from './components/ShareToFriendModal'
+import { ShareToSupportModal } from './components/ShareToSupportModal'
+import { AuthGuardModal } from './components/AuthGuardModal'
+import { NewProjectModal } from './components/NewProjectModal'
+import { BotSettingsModal } from './components/BotSettingsModal'
 
 import { HomeView } from './views/HomeView'
 import { ProjectsView } from './views/ProjectsView'
 import { MarketplaceView } from './views/MarketplaceView'
 import { ThemesView } from './views/ThemesView'
-import { PluginsView } from './views/PluginsView'
 
 import { BotTemplate, PRESET_TEMPLATES } from './templates'
 import { MarketplaceItem } from './marketplaceData'
@@ -63,7 +84,7 @@ function StudioCanvas(): React.JSX.Element {
     {
       timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
       level: 'info',
-      message: 'Yapin Bot Maker studio initialized. Welcome to the workspace.'
+      message: 'Yapper Maker studio initialized. Welcome to the workspace.'
     }
   ])
   const [isRunning, setIsRunning] = useState(false)
@@ -103,44 +124,116 @@ function StudioCanvas(): React.JSX.Element {
   const [folders, setFolders] = useState<Folder[]>(activeProject.folders ?? defaultFolders)
   const [flowId, setFlowId] = useState(() => flows.find((f) => f.isOpen)?.id ?? '')
   const [toast, setToast] = useState('')
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const liveFlows = flows.map((f) => (f.id === flowId ? { ...f, nodes, edges } : f))
   const projectPayload = {
+    projectFilePath: activeProject.filePath,
+    projectId: activeProject.id,
     token,
     name: activeProject.name,
+    prefix: activeProject.prefix || '/',
+    commandPrefix: activeProject.prefix || '/',
     nodes,
     edges,
     flows: liveFlows,
     folders
   }
-  const switchFlow = (id: string, list = liveFlows): void => {
-    const next = list.find((f) => f.id === id)
-    setFlows(list.map((f) => (f.id === id ? { ...f, isOpen: true } : f)))
-    setFlowId(id)
-    setNodes(next?.nodes ?? [])
-    setEdges(next?.edges ?? [])
-    setSelectedNodeId(null)
-  }
-  const addFlow = (name = 'Untitled flow', n: BotNode[] = [], e: BotEdge[] = []): void => {
-    const flow = newFlow(name, n, e)
-    const folder = folders.find((f) => !f.isDisabled)
-    flow.folderId = folder?.id
-    switchFlow(flow.id, [...liveFlows, flow])
-    setActiveTab('canvas')
-  }
+  const switchFlow = useCallback(
+    (id: string, list = liveFlows): void => {
+      const next = list.find((f) => f.id === id)
+      setFlows(list.map((f) => (f.id === id ? { ...f, isOpen: true } : f)))
+      setFlowId(id)
+      setNodes(next?.nodes ?? [])
+      setEdges(next?.edges ?? [])
+      setSelectedNodeId(null)
+    },
+    [liveFlows, setNodes, setEdges, setSelectedNodeId]
+  )
+
+  const addFlow = useCallback(
+    (name = 'Untitled flow', n: BotNode[] = [], e: BotEdge[] = []): void => {
+      const flow = newFlow(name, n, e)
+      const folder = folders.find((f) => !f.isDisabled)
+      flow.folderId = folder?.id
+      switchFlow(flow.id, [...liveFlows, flow])
+      setActiveTab('canvas')
+    },
+    [folders, liveFlows, switchFlow]
+  )
   const restoreFlows = (project: {
+    prefix?: string
     flows?: Flow[]
     folders?: Folder[]
     nodes: BotNode[]
     edges: BotEdge[]
   }): void => {
-    const list = project.flows ?? [newFlow('Main', project.nodes, project.edges)]
+    const projPrefix = project.prefix || activeProject.prefix || '/'
+    const cleanNodes = (nds: BotNode[]): BotNode[] =>
+      nds.map((n) => {
+        if (n.type === 'onCommand' && n.data?.commandName) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              commandName: normalizeCommandName(n.data.commandName, projPrefix) || 'ping'
+            }
+          }
+        }
+        return n
+      })
+
+    project = cleanProjectGraph(project)
+    const rawList = project.flows ?? [newFlow('Main', project.nodes, project.edges)]
+    const list = rawList.map((fl) => ({
+      ...fl,
+      nodes: cleanNodes(fl.nodes)
+    }))
     setFolders(project.folders ?? defaultFolders)
     switchFlow(list.find((f) => f.isOpen)?.id ?? list[0]?.id ?? '', list)
   }
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
+  const { prefs } = usePreferences()
+  const [editingNode, setEditingNode] = useState<BotNode | null>(null)
+  const [contextMenu, setContextMenu] = useState<{
+    target: ContextMenuTarget
+    position: { x: number; y: number }
+  } | null>(null)
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false)
+  const [addNodeMenu, setAddNodeMenu] = useState<{
+    x: number
+    y: number
+    position: { x: number; y: number }
+  } | null>(null)
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
   const [isAccountOpen, setIsAccountOpen] = useState(false)
+  const [accountInitialMode, setAccountInitialMode] = useState<'settings' | 'signin'>('settings')
+  const [isInboxOpen, setIsInboxOpen] = useState(false)
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false)
+  const [debugCollapsed, setDebugCollapsed] = useState(false)
+  const [isLiveDebugOpen, setIsLiveDebugOpen] = useState(false)
+  const [isLiveVarsOpen, setIsLiveVarsOpen] = useState(false)
+  const [infoModalKind, setInfoModalKind] = useState<InfoKind | null>(null)
+  const [isShareFriendOpen, setIsShareFriendOpen] = useState(false)
+  const [isShareSupportOpen, setIsShareSupportOpen] = useState(false)
+  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false)
+  const [isBotSettingsOpen, setIsBotSettingsOpen] = useState(false)
+  const [authGuardAction, setAuthGuardAction] = useState<string | null>(null)
+  const [marketplacePublishSnippet, setMarketplacePublishSnippet] = useState<{
+    name: string
+    nodes: BotNode[]
+    edges: BotEdge[]
+  } | null>(null)
+
+  useEffect(() => {
+    const handler = (e: Event): void => {
+      const detail = (e as CustomEvent<{ nodeId: string }>).detail
+      if (detail?.nodeId) {
+        const target = nodes.find((n) => n.id === detail.nodeId)
+        if (target) setEditingNode(target)
+      }
+    }
+    window.addEventListener('yapin:open-node-editor', handler)
+    return () => window.removeEventListener('yapin:open-node-editor', handler)
+  }, [nodes])
 
   const [rememberToken, setRememberToken] = useState(false)
   const [tokenStorageReady, setTokenStorageReady] = useState(false)
@@ -152,6 +245,49 @@ function StudioCanvas(): React.JSX.Element {
   const { screenToFlowPosition, fitView } = useReactFlow()
 
   const selectedNode = nodes.find((n) => n.id === selectedNodeId) ?? null
+
+  const selectedNodes = useMemo(() => nodes.filter((n) => n.selected), [nodes])
+  const selectedInternalEdges = useMemo(() => {
+    const selIds = new Set(selectedNodes.map((n) => n.id))
+    return edges.filter((e) => selIds.has(e.source) && selIds.has(e.target))
+  }, [selectedNodes, edges])
+
+  const handleDeselectAll = useCallback(() => {
+    setNodes((nds) => nds.map((n) => (n.selected ? { ...n, selected: false } : n)))
+    setSelectedNodeId(null)
+  }, [setNodes, setSelectedNodeId])
+
+  const handleCreateGroup = useCallback(() => {
+    if (selectedNodes.length < 2) return
+    const groupName = `Group (${selectedNodes.length} nodes)`
+    addFlow(groupName, selectedNodes, selectedInternalEdges)
+    setToast(`Created group "${groupName}" with ${selectedNodes.length} nodes!`)
+    setTimeout(() => setToast(''), 3500)
+  }, [selectedNodes, selectedInternalEdges, addFlow])
+
+  const handleShareToMarketplace = useCallback(() => {
+    if (selectedNodes.length === 0) return
+    setMarketplacePublishSnippet({
+      name: `${String(selectedNodes[0].data.label || selectedNodes[0].type)} Subgraph`,
+      nodes: selectedNodes,
+      edges: selectedInternalEdges
+    })
+    setActiveTab('marketplace')
+  }, [selectedNodes, selectedInternalEdges])
+
+  const issues = useMemo<FlowIssue[]>(() => analyzeFlows(liveFlows, folders), [liveFlows, folders])
+
+  const handleSelectIssue = (issue: FlowIssue): void => {
+    if (issue.flowId && issue.flowId !== flowId) {
+      switchFlow(issue.flowId)
+    }
+    if (issue.nodeId) {
+      setSelectedNodeId(issue.nodeId)
+      setTimeout(() => {
+        fitView({ nodes: [{ id: issue.nodeId! }], duration: 450, maxZoom: 1.2 })
+      }, 50)
+    }
+  }
 
   // Initialize Active Theme on startup
   useEffect(() => {
@@ -447,9 +583,50 @@ function StudioCanvas(): React.JSX.Element {
     ])
   }
 
-  const handleCreateNewProject = (): void => {
-    const newProj = createNewProjectRecord('Untitled Bot Flow')
+  const handleConfirmCreateProject = (data: {
+    name: string
+    template: 'starter' | 'blank'
+    location: string
+    icon: string
+    iconBg: string
+  }): void => {
+    const newProj = createNewProjectRecord(data)
     handleOpenProjectRecord(newProj)
+    setIsNewProjectOpen(false)
+    setToast(`Created project "${newProj.name}"!`)
+    setTimeout(() => setToast(''), 3500)
+  }
+
+  const handleSaveBotSettings = (updated: {
+    name: string
+    token: string
+    prefix: string
+    permissions?: number
+    icon?: string
+    iconBg?: string
+  }): void => {
+    const updatedProj: BotProjectRecord = {
+      ...activeProject,
+      name: updated.name,
+      prefix: updated.prefix,
+      permissions: updated.permissions,
+      icon: updated.icon ?? activeProject.icon,
+      iconBg: updated.iconBg ?? activeProject.iconBg,
+      lastModified: Date.now()
+    }
+    setActiveProject(updatedProj)
+    saveProjectRecord(updatedProj)
+    if (updated.token !== token) {
+      setToken(updated.token)
+      try {
+        window.sessionStorage.setItem('yapin_bot_token', updated.token)
+      } catch (err) {
+        void err
+      }
+    }
+    setIsBotSettingsOpen(false)
+    setToast(`Saved settings for "${updatedProj.name}"`)
+    setTimeout(() => setToast(''), 3000)
   }
 
   // Select pre-built template
@@ -458,13 +635,18 @@ function StudioCanvas(): React.JSX.Element {
   }
 
   // Add node from Palette
-  const handleAddNode = (item: PaletteItem): void => {
+  const handleAddNode = (item: PaletteItem, position?: { x: number; y: number }): void => {
     const newId = crypto.randomUUID()
+    const newNodeData = { ...item.defaultData }
+    if (item.type === 'onCommand' && newNodeData.commandName) {
+      newNodeData.commandName =
+        normalizeCommandName(newNodeData.commandName, activeProject.prefix) || 'ping'
+    }
     const newNode: BotNode = {
       id: newId,
       type: item.type,
-      position: { x: 300 + Math.random() * 80, y: 150 + Math.random() * 80 },
-      data: { ...item.defaultData }
+      position: position ?? { x: 300 + Math.random() * 80, y: 150 + Math.random() * 80 },
+      data: newNodeData
     }
     if (!flowId) {
       addFlow('Untitled flow', [newNode])
@@ -487,18 +669,28 @@ function StudioCanvas(): React.JSX.Element {
       if (!raw) return
 
       try {
-        const item: PaletteItem = JSON.parse(raw)
+        const payload: unknown = JSON.parse(raw)
+        const item =
+          payload && typeof payload === 'object' && 'type' in payload
+            ? CATALOG_BY_TYPE.get(String(payload.type))
+            : undefined
+        if (!item) return
         const position = screenToFlowPosition({
           x: event.clientX,
           y: event.clientY
         })
 
         const newId = crypto.randomUUID()
+        const nodeData = { ...item.defaultData }
+        if (item.type === 'onCommand' && nodeData.commandName) {
+          nodeData.commandName =
+            normalizeCommandName(nodeData.commandName, activeProject.prefix) || 'ping'
+        }
         const newNode: BotNode = {
           id: newId,
           type: item.type,
           position,
-          data: { ...item.defaultData }
+          data: nodeData
         }
 
         setNodes((nds) => [...nds, newNode])
@@ -507,7 +699,7 @@ function StudioCanvas(): React.JSX.Element {
         console.error('Error dropping node:', e)
       }
     },
-    [screenToFlowPosition, setNodes]
+    [activeProject.prefix, screenToFlowPosition, setNodes, setSelectedNodeId]
   )
 
   // Node Inspector updates
@@ -515,12 +707,14 @@ function StudioCanvas(): React.JSX.Element {
     setNodes((nds) =>
       nds.map((node) => {
         if (node.id === nodeId) {
+          const updated = { ...node.data, ...patch }
+          if (node.type === 'onCommand' && 'commandName' in patch) {
+            updated.commandName =
+              normalizeCommandName(updated.commandName, activeProject.prefix) || 'ping'
+          }
           return {
             ...node,
-            data: {
-              ...node.data,
-              ...patch
-            } as CustomNodeData
+            data: updated
           }
         }
         return node
@@ -548,6 +742,62 @@ function StudioCanvas(): React.JSX.Element {
     }
   }
 
+  const handleRenameNode = (nodeId: string, newLabel: string): void => {
+    handleUpdateNodeData(nodeId, { label: newLabel })
+  }
+
+  const handleChangeNodeColor = (nodeId: string, color: string | undefined): void => {
+    handleUpdateNodeData(nodeId, { customColor: color })
+  }
+
+  const handleUpdateEdgeLabel = (edgeId: string, newLabel: string): void => {
+    setEdges((eds) =>
+      eds.map((e) =>
+        e.id === edgeId
+          ? {
+              ...e,
+              label: newLabel || undefined,
+              labelStyle: { fill: '#ffffff', fontWeight: 600, fontSize: 11 },
+              labelBgStyle: { fill: '#182234', fillOpacity: 0.9, rx: 4, ry: 4 }
+            }
+          : e
+      )
+    )
+  }
+
+  const handleUpdateEdgeColor = (edgeId: string, color: string | undefined): void => {
+    setEdges((eds) =>
+      eds.map((e) =>
+        e.id === edgeId
+          ? {
+              ...e,
+              style: color ? { ...e.style, stroke: color, strokeWidth: 2.5 } : undefined
+            }
+          : e
+      )
+    )
+  }
+
+  const handleDeleteEdge = (edgeId: string): void => {
+    setEdges((eds) => eds.filter((e) => e.id !== edgeId))
+  }
+
+  const handleNodeContextMenu = useCallback((event: React.MouseEvent, node: BotNode): void => {
+    event.preventDefault()
+    setContextMenu({
+      target: { type: 'node', node },
+      position: { x: event.clientX, y: event.clientY }
+    })
+  }, [])
+
+  const handleEdgeContextMenu = useCallback((event: React.MouseEvent, edge: BotEdge): void => {
+    event.preventDefault()
+    setContextMenu({
+      target: { type: 'edge', edge },
+      position: { x: event.clientX, y: event.clientY }
+    })
+  }, [])
+
   // Install marketplace item
   const handleInstallMarketplaceItem = (item: MarketplaceItem): void => {
     try {
@@ -572,182 +822,388 @@ function StudioCanvas(): React.JSX.Element {
   }
 
   return (
-    <div className="app-root-suite">
-      {/* 1. Left Vertical Sidebar Rail (#1e1f22) */}
-      <Sidebar
-        activeTab={activeTab}
-        onSelectTab={setActiveTab}
-        isRunning={isRunning}
-        onOpenSettings={() => setIsPreferencesOpen(true)}
-        onOpenAccount={() => setIsAccountOpen(true)}
-      />
+    <ProjectProvider project={activeProject} commandPrefix={activeProject.prefix || '/'}>
+      <div className="app-root-suite">
+        {/* 1. Left Vertical Sidebar Rail (#1e1f22) */}
+        <Sidebar
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
+          isRunning={isRunning}
+          onOpenSettings={() => setIsPreferencesOpen(true)}
+          onOpenAccount={() => {
+            setAccountInitialMode('settings')
+            setIsAccountOpen(true)
+          }}
+          onOpenInbox={() => setIsInboxOpen(true)}
+          onOpenProfileMenu={() => setIsProfileMenuOpen((prev) => !prev)}
+        />
 
-      {/* 2. Main Suite Viewport */}
-      <main className="app-main-viewport">
-        {activeTab === 'home' && (
-          <HomeView
-            onNavigate={setActiveTab}
-            onNewProject={handleCreateNewProject}
-            onOpenProjectFile={handleLoadProject}
-            onLoadProjectRecord={handleOpenProjectRecord}
-            onOpenTemplates={() => setIsTemplatesOpen(true)}
-            isRunning={isRunning}
-          />
-        )}
+        {/* Sidebar Profile Popup Menu (Image 6) */}
+        <ProfileDropdown
+          isOpen={isProfileMenuOpen}
+          onClose={() => setIsProfileMenuOpen(false)}
+          onOpenAccountSettings={() => {
+            setAccountInitialMode('settings')
+            setIsAccountOpen(true)
+          }}
+          onSwitchAccount={() => {
+            setAccountInitialMode('signin')
+            setIsAccountOpen(true)
+          }}
+        />
 
-        {activeTab === 'canvas' && (
-          <div className="studio-container">
-            <Toolbar
-              token={token}
-              rememberToken={rememberToken}
-              tokenStorageAvailable={tokenStorageReady && tokenStorageAvailable}
-              onRememberToken={handleRememberToken}
-              onExportStandalone={handleExportStandalone}
-              isExporting={isExporting}
-              onTokenChange={handleTokenChange}
-              isRunning={isRunning}
-              isStarting={isStarting}
-              onToggleBot={handleToggleBot}
-              onSaveProject={handleSaveProject}
-              onLoadProject={handleLoadProject}
-              onNewCanvas={handleNewCanvas}
+        {/* 2. Main Suite Viewport */}
+        <main className="app-main-viewport">
+          {activeTab === 'home' && (
+            <HomeView
+              onNavigate={setActiveTab}
+              onNewProject={() => setIsNewProjectOpen(true)}
+              onOpenProjectFile={handleLoadProject}
+              onLoadProjectRecord={handleOpenProjectRecord}
               onOpenTemplates={() => setIsTemplatesOpen(true)}
-              projectName={activeProject.name}
+              isRunning={isRunning}
             />
+          )}
 
-            <div className="studio-main-body">
-              <NodePalette onAddNode={handleAddNode} />
-
-              <div className="studio-canvas-wrapper" ref={reactFlowWrapper}>
-                <FlowManager
-                  flows={liveFlows}
-                  folders={folders}
-                  active={flowId}
-                  select={(id) => switchFlow(id)}
-                  create={() => addFlow()}
-                  change={(list, groups) => {
-                    setFolders(groups)
-                    const next =
-                      list.find((f) => f.id === flowId && f.isOpen) ?? list.find((f) => f.isOpen)
-                    switchFlow(next?.id ?? '', list)
-                  }}
-                />
-                {toast && (
-                  <div className="flow-toast" role="status">
-                    {toast}
-                  </div>
-                )}
-                <ReactFlow
-                  nodes={nodes}
-                  edges={edges}
-                  onNodesChange={onNodesChange}
-                  onEdgesChange={onEdgesChange}
-                  onConnect={onConnect}
-                  nodeTypes={nodeTypes}
-                  onDragOver={onDragOver}
-                  onDrop={onDrop}
-                  onNodeClick={(_event, node) => setSelectedNodeId(node.id)}
-                  onPaneClick={() => setSelectedNodeId(null)}
-                  fitView
-                  fitViewOptions={{ padding: 0.2 }}
-                  defaultEdgeOptions={{ animated: true }}
-                >
-                  <Background
-                    variant={BackgroundVariant.Dots}
-                    gap={20}
-                    size={1.5}
-                    color="#223249"
-                  />
-                  <Controls showInteractive={false} />
-                  <MiniMap
-                    pannable
-                    zoomable
-                    nodeColor={(node) => {
-                      if (node.type === 'onMessage' || node.type === 'onCommand') return '#a855f7'
-                      if (
-                        node.type === 'textCondition' ||
-                        node.type === 'checkUserRole' ||
-                        node.type === 'cooldownTimer'
-                      )
-                        return '#06b6d4'
-                      if (node.type === 'setVariable' || node.type === 'getVariable')
-                        return '#f59e0b'
-                      return '#10b981'
-                    }}
-                    maskColor="rgba(11, 15, 25, 0.75)"
-                  />
-                </ReactFlow>
-              </div>
-
-              <NodeInspectorDrawer
-                selectedNode={selectedNode}
-                onClose={() => setSelectedNodeId(null)}
-                onUpdateData={handleUpdateNodeData}
-                onDuplicateNode={handleDuplicateNode}
-                onDeleteNode={handleDeleteNode}
+          {activeTab === 'canvas' && (
+            <div className="studio-container">
+              <Toolbar
+                token={token}
+                rememberToken={rememberToken}
+                tokenStorageAvailable={tokenStorageReady && tokenStorageAvailable}
+                onRememberToken={handleRememberToken}
+                onExportStandalone={handleExportStandalone}
+                isExporting={isExporting}
+                onTokenChange={handleTokenChange}
+                isRunning={isRunning}
+                isStarting={isStarting}
+                onToggleBot={handleToggleBot}
+                onSaveProject={handleSaveProject}
+                onLoadProject={handleLoadProject}
+                onNewCanvas={handleNewCanvas}
+                onOpenTemplates={() => setIsTemplatesOpen(true)}
+                onOpenBotSettings={() => setIsBotSettingsOpen(true)}
+                projectName={activeProject.name}
               />
+
+              <div className="studio-main-body">
+                <NodePalette onAddNode={handleAddNode} />
+
+                <div className="studio-canvas-wrapper" ref={reactFlowWrapper}>
+                  <FlowManager
+                    flows={liveFlows}
+                    folders={folders}
+                    active={flowId}
+                    select={(id) => switchFlow(id)}
+                    create={() => addFlow()}
+                    change={(list, groups) => {
+                      setFolders(groups)
+                      const next =
+                        list.find((f) => f.id === flowId && f.isOpen) ?? list.find((f) => f.isOpen)
+                      switchFlow(next?.id ?? '', list)
+                    }}
+                  />
+                  {toast && (
+                    <div className="flow-toast" role="status">
+                      {toast}
+                    </div>
+                  )}
+                  <FloatingSelectionBar
+                    selectedNodes={selectedNodes}
+                    onCreateGroup={handleCreateGroup}
+                    onShareToFriend={() => setIsShareFriendOpen(true)}
+                    onShareToSupport={() => setIsShareSupportOpen(true)}
+                    onShareToMarketplace={handleShareToMarketplace}
+                    onDeselect={handleDeselectAll}
+                  />
+                  <ReactFlow
+                    nodes={nodes}
+                    edges={edges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onConnect={onConnect}
+                    nodeTypes={nodeTypes}
+                    onDragOver={onDragOver}
+                    onDrop={onDrop}
+                    onPaneContextMenu={(event) => {
+                      event.preventDefault()
+                      setContextMenu(null)
+                      setAddNodeMenu({
+                        x: event.clientX,
+                        y: event.clientY,
+                        position: screenToFlowPosition({ x: event.clientX, y: event.clientY })
+                      })
+                    }}
+                    selectionKeyCode={['Control', 'Meta']}
+                    multiSelectionKeyCode={['Control', 'Meta', 'Shift']}
+                    selectionMode={SelectionMode.Partial}
+                    onNodeClick={(_event, node) => {
+                      setSelectedNodeId(node.id)
+                      setContextMenu(null)
+                      if (prefs.propertiesInModal) setEditingNode(node)
+                    }}
+                    onNodeDoubleClick={(_event, node) => {
+                      setContextMenu(null)
+                      setEditingNode(node)
+                    }}
+                    onNodeContextMenu={handleNodeContextMenu}
+                    onEdgeContextMenu={handleEdgeContextMenu}
+                    onPaneClick={() => {
+                      setSelectedNodeId(null)
+                      setContextMenu(null)
+                      setNodes((nds) =>
+                        nds.map((n) => (n.selected ? { ...n, selected: false } : n))
+                      )
+                    }}
+                    fitView
+                    fitViewOptions={{ padding: 0.2 }}
+                    defaultEdgeOptions={{ animated: true }}
+                  >
+                    <Background
+                      variant={BackgroundVariant.Dots}
+                      gap={20}
+                      size={1.5}
+                      color="#223249"
+                    />
+                    <Controls showInteractive={false} />
+                    <MiniMap
+                      pannable
+                      zoomable
+                      nodeColor={(node) => {
+                        if (node.type === 'onMessage' || node.type === 'onCommand') return '#a855f7'
+                        if (
+                          node.type === 'textCondition' ||
+                          node.type === 'checkUserRole' ||
+                          node.type === 'cooldownTimer'
+                        )
+                          return '#06b6d4'
+                        if (node.type === 'setVariable' || node.type === 'getVariable')
+                          return '#f59e0b'
+                        return '#10b981'
+                      }}
+                      maskColor="rgba(11, 15, 25, 0.75)"
+                    />
+                  </ReactFlow>
+                </div>
+
+                {!prefs.propertiesInModal && selectedNode && (
+                  <NodeInspectorDrawer
+                    selectedNode={selectedNode}
+                    onClose={() => setSelectedNodeId(null)}
+                    onUpdateData={handleUpdateNodeData}
+                    onDuplicateNode={handleDuplicateNode}
+                    onDeleteNode={handleDeleteNode}
+                    onOpenFullEditor={(nodeToEdit) => setEditingNode(nodeToEdit)}
+                  />
+                )}
+
+                <DebugPanel
+                  issues={issues}
+                  activeFlowId={flowId}
+                  onSelectIssue={handleSelectIssue}
+                  logs={logs}
+                  onClearLogs={() => setLogs([])}
+                  isRunning={isRunning}
+                  collapsed={debugCollapsed}
+                  onToggleCollapsed={() => setDebugCollapsed((prev) => !prev)}
+                  onOpenLiveDebug={() => setIsLiveDebugOpen(true)}
+                  onOpenLiveVariables={() => setIsLiveVarsOpen(true)}
+                />
+              </div>
             </div>
+          )}
 
-            <ConsoleDrawer logs={logs} onClearLogs={() => setLogs([])} isRunning={isRunning} />
-          </div>
-        )}
+          {activeTab === 'projects' && (
+            <ProjectsView
+              activeProject={activeProject}
+              onOpenProject={handleOpenProjectRecord}
+              onActivateProject={handleOpenProjectRecord}
+              onOpenNewProjectModal={() => setIsNewProjectOpen(true)}
+              onImportFromFile={handleLoadProject}
+              onExportStandalone={(proj) => {
+                handleOpenProjectRecord(proj)
+                if (window.botApi)
+                  void window.botApi
+                    .exportStandalone({
+                      token,
+                      nodes: proj.nodes,
+                      edges: proj.edges,
+                      flows: proj.flows,
+                      folders: proj.folders
+                    })
+                    .then((r) => {
+                      if (r.error) reportError(r.error)
+                    })
+              }}
+            />
+          )}
 
-        {activeTab === 'projects' && (
-          <ProjectsView
-            onOpenProject={handleOpenProjectRecord}
-            onImportFromFile={handleLoadProject}
-            onExportStandalone={(proj) => {
-              handleOpenProjectRecord(proj)
-              if (window.botApi)
-                void window.botApi
-                  .exportStandalone({
-                    token,
-                    nodes: proj.nodes,
-                    edges: proj.edges,
-                    flows: proj.flows,
-                    folders: proj.folders
-                  })
-                  .then((r) => {
-                    if (r.error) reportError(r.error)
-                  })
-            }}
+          {activeTab === 'marketplace' && (
+            <MarketplaceView
+              onInstallItem={handleInstallMarketplaceItem}
+              onApplyTheme={(themeId) => applyTheme(themeId)}
+              onOpenAccount={(mode) => {
+                setAccountInitialMode(mode ?? 'signin')
+                setIsAccountOpen(true)
+              }}
+              initialPublishItem={marketplacePublishSnippet}
+              onClearInitialPublish={() => setMarketplacePublishSnippet(null)}
+            />
+          )}
+
+          {activeTab === 'themes' && (
+            <ThemesView onThemeChanged={(themeId) => applyTheme(themeId)} />
+          )}
+        </main>
+
+        {/* Canvas Context Menu */}
+        {addNodeMenu && (
+          <AddNodeMenu
+            key={`${addNodeMenu.x}-${addNodeMenu.y}`}
+            x={addNodeMenu.x}
+            y={addNodeMenu.y}
+            onClose={() => setAddNodeMenu(null)}
+            onSelect={(entry) => handleAddNode(entry, addNodeMenu.position)}
           />
         )}
+        <ContextMenu
+          target={contextMenu?.target ?? null}
+          position={contextMenu?.position ?? null}
+          onClose={() => setContextMenu(null)}
+          onEditNode={(node) => setEditingNode(node)}
+          onRenameNode={handleRenameNode}
+          onChangeNodeColor={handleChangeNodeColor}
+          onDuplicateNode={handleDuplicateNode}
+          onDeleteNode={handleDeleteNode}
+          onEditLinkLabel={handleUpdateEdgeLabel}
+          onChangeLinkColor={handleUpdateEdgeColor}
+          onDeleteLink={handleDeleteEdge}
+        />
 
-        {activeTab === 'marketplace' && (
-          <MarketplaceView
-            onInstallItem={handleInstallMarketplaceItem}
-            onApplyTheme={(themeId) => applyTheme(themeId)}
-          />
+        {/* Global Modals */}
+        <NodeEditorModal
+          node={editingNode}
+          isOpen={Boolean(editingNode)}
+          onClose={() => setEditingNode(null)}
+          onSave={(nodeId, updatedData) => {
+            handleUpdateNodeData(nodeId, updatedData)
+          }}
+          onDeleteNode={(nodeId) => {
+            handleDeleteNode(nodeId)
+          }}
+          onDuplicateNode={(nodeToDup) => {
+            handleDuplicateNode(nodeToDup)
+          }}
+        />
+        <PreferencesModal
+          isOpen={isPreferencesOpen}
+          onClose={() => setIsPreferencesOpen(false)}
+          onViewInfo={(kind) => setInfoModalKind(kind)}
+        />
+
+        <InfoModal kind={infoModalKind} onClose={() => setInfoModalKind(null)} />
+
+        {isLiveDebugOpen && (
+          <LiveDebugModal logs={logs} onClose={() => setIsLiveDebugOpen(false)} />
         )}
 
-        {activeTab === 'themes' && <ThemesView onThemeChanged={(themeId) => applyTheme(themeId)} />}
+        {isLiveVarsOpen && (
+          <LiveVariablesModal isRunning={isRunning} onClose={() => setIsLiveVarsOpen(false)} />
+        )}
 
-        {activeTab === 'plugins' && <PluginsView />}
-      </main>
+        <InboxModal isOpen={isInboxOpen} onClose={() => setIsInboxOpen(false)} />
 
-      {/* Global Modals */}
-      <PreferencesModal
-        isOpen={isPreferencesOpen}
-        onClose={() => setIsPreferencesOpen(false)}
-        onThemeChanged={(themeId) => applyTheme(themeId)}
-      />
+        <AccountModal
+          isOpen={isAccountOpen}
+          onClose={() => setIsAccountOpen(false)}
+          initialMode={accountInitialMode}
+        />
 
-      <AccountModal isOpen={isAccountOpen} onClose={() => setIsAccountOpen(false)} />
+        <TemplatesModal
+          isOpen={isTemplatesOpen}
+          onClose={() => setIsTemplatesOpen(false)}
+          onSelectTemplate={handleSelectTemplate}
+        />
 
-      <TemplatesModal
-        isOpen={isTemplatesOpen}
-        onClose={() => setIsTemplatesOpen(false)}
-        onSelectTemplate={handleSelectTemplate}
-      />
-    </div>
+        <ShareToFriendModal
+          isOpen={isShareFriendOpen}
+          nodes={selectedNodes}
+          edges={selectedInternalEdges}
+          onClose={() => setIsShareFriendOpen(false)}
+          onSuccess={(msg) => {
+            setToast(msg)
+            setTimeout(() => setToast(''), 3500)
+          }}
+          onRequireAuth={() => {
+            setAuthGuardAction('share flow snippets to friends')
+            setIsShareFriendOpen(false)
+          }}
+        />
+
+        <ShareToSupportModal
+          isOpen={isShareSupportOpen}
+          nodes={selectedNodes}
+          edges={selectedInternalEdges}
+          onClose={() => setIsShareSupportOpen(false)}
+          onSuccess={(msg) => {
+            setToast(msg)
+            setTimeout(() => setToast(''), 3500)
+          }}
+          onRequireAuth={() => {
+            setAuthGuardAction('submit diagnostic flows to Yapin Support')
+            setIsShareSupportOpen(false)
+          }}
+        />
+
+        <AuthGuardModal
+          isOpen={Boolean(authGuardAction)}
+          actionName={authGuardAction ?? undefined}
+          onClose={() => setAuthGuardAction(null)}
+          onSignIn={() => {
+            setAuthGuardAction(null)
+            setAccountInitialMode('signin')
+            setIsAccountOpen(true)
+          }}
+        />
+
+        <NewProjectModal
+          isOpen={isNewProjectOpen}
+          onClose={() => setIsNewProjectOpen(false)}
+          onCreateProject={handleConfirmCreateProject}
+        />
+
+        <BotSettingsModal
+          isOpen={isBotSettingsOpen}
+          project={activeProject}
+          token={token}
+          onClose={() => setIsBotSettingsOpen(false)}
+          onSave={handleSaveBotSettings}
+        />
+      </div>
+    </ProjectProvider>
   )
 }
 
 export default function App(): React.JSX.Element {
+  useEffect(() => {
+    // Retire settings left by earlier releases; no feature reads these keys anymore.
+    try {
+      for (let index = localStorage.length - 1; index >= 0; index--) {
+        const key = localStorage.key(index)
+        if (key === 'yapin_active_plugins_state' || key?.startsWith('yapin_plugin_settings_'))
+          localStorage.removeItem(key)
+      }
+    } catch {
+      // The studio still works when local storage is unavailable.
+    }
+  }, [])
   return (
-    <ReactFlowProvider>
-      <StudioCanvas />
-    </ReactFlowProvider>
+    <PreferencesProvider>
+      <AccountProvider>
+        <ReactFlowProvider>
+          <StudioCanvas />
+        </ReactFlowProvider>
+      </AccountProvider>
+    </PreferencesProvider>
   )
 }

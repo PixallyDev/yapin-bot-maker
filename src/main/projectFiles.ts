@@ -5,7 +5,10 @@ import {
   type OpenDialogOptions
 } from 'electron'
 import { readFile, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { isRecord, validateGraph, type BotGraphPayload } from './botRunner'
+import { cleanProjectGraph } from '../shared/nodeSupport'
 
 export function parseProject(value: unknown): BotGraphPayload {
   if (!isRecord(value)) throw new Error('Invalid project file.')
@@ -14,13 +17,20 @@ export function parseProject(value: unknown): BotGraphPayload {
   }
   const source = value.graph === undefined ? value : value.graph
   if (!isRecord(source)) throw new Error('Project graph must be an object.')
-  const graph: unknown = {
+  const prefix =
+    (typeof value.commandPrefix === 'string' && value.commandPrefix) ||
+    (typeof value.prefix === 'string' && value.prefix) ||
+    (isRecord(source) && typeof source.commandPrefix === 'string' && source.commandPrefix) ||
+    (isRecord(source) && typeof source.prefix === 'string' && source.prefix) ||
+    undefined
+  const graph: unknown = cleanProjectGraph({
     token: '',
     name: value.name,
+    ...(prefix ? { prefix, commandPrefix: prefix } : {}),
     nodes: source.nodes,
     edges: source.edges,
     ...(source.flows ? { flows: source.flows, folders: source.folders } : {})
-  }
+  })
   validateGraph(graph)
   return graph
 }
@@ -31,12 +41,17 @@ export function publicGraph(input: unknown): {
   edges: BotGraphPayload['edges']
   flows?: BotGraphPayload['flows']
   folders?: BotGraphPayload['folders']
+  prefix?: string
+  commandPrefix?: string
 } {
+  input = cleanProjectGraph(input)
   validateGraph(input)
   const result = {
     nodes: input.nodes,
     edges: input.edges,
-    ...(input.flows ? { flows: input.flows, folders: input.folders } : {})
+    ...(input.flows ? { flows: input.flows, folders: input.folders } : {}),
+    ...(input.prefix ? { prefix: input.prefix } : {}),
+    ...(input.commandPrefix ? { commandPrefix: input.commandPrefix } : {})
   }
   const text = JSON.stringify({ ...result, name: input.name })
   if (
@@ -50,18 +65,20 @@ export function publicGraph(input: unknown): {
 
 export async function saveProject(
   window: BrowserWindow | null,
-  input: unknown
+  input: unknown,
+  defaultDir?: unknown
 ): Promise<{
   success: boolean
   filePath?: string
   error?: string
 }> {
   try {
+    input = cleanProjectGraph(input)
     validateGraph(input)
     const graph = structuredClone(input)
     const options: SaveDialogOptions = {
       title: 'Save Yapin Bot Project',
-      defaultPath: 'my-bot.yapbot.json',
+      defaultPath: folderOrNothing(defaultDir, 'my-bot.yapbot.json'),
       filters: [{ name: 'Yapin Bot Project (*.yapbot.json)', extensions: ['yapbot.json'] }]
     }
     const result = await (window
@@ -78,6 +95,8 @@ export async function saveProject(
         {
           version: '1.0.0',
           name: graph.name ?? 'My Yapin Bot',
+          ...(graph.prefix ? { prefix: graph.prefix } : {}),
+          ...(graph.commandPrefix ? { commandPrefix: graph.commandPrefix } : {}),
           savedAt: new Date().toISOString(),
           graph: publicGraph(graph)
         },
@@ -92,7 +111,14 @@ export async function saveProject(
   }
 }
 
-export async function loadProject(window: BrowserWindow | null): Promise<{
+function folderOrNothing(dir: unknown, fileName: string): string {
+  return typeof dir === 'string' && dir.trim() && existsSync(dir) ? join(dir, fileName) : fileName
+}
+
+export async function loadProject(
+  window: BrowserWindow | null,
+  defaultDir?: unknown
+): Promise<{
   success: boolean
   data?: BotGraphPayload
   filePath?: string
@@ -101,6 +127,8 @@ export async function loadProject(window: BrowserWindow | null): Promise<{
   try {
     const options: OpenDialogOptions = {
       title: 'Open Yapin Bot Project',
+      defaultPath:
+        typeof defaultDir === 'string' && existsSync(defaultDir) ? defaultDir : undefined,
       properties: ['openFile'],
       filters: [{ name: 'Yapin Bot Project (*.yapbot.json)', extensions: ['yapbot.json'] }]
     }

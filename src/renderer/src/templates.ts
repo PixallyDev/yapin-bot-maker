@@ -17,7 +17,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
     tag: 'Beginner Friendly',
     description:
       'Responds to /ping with instant latency check, sends a styled Rich FAQ Card on /faq, and auto-detects help requests in chat.',
-    icon: '⚡',
+    icon: 'Zap',
     nodes: [
       {
         id: 'cmd-ping',
@@ -35,7 +35,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
         position: { x: 440, y: 80 },
         data: {
           label: 'Send Reply',
-          message: 'Pong! 🏓 Latency is 12ms. Bot is fully online.'
+          message: 'Pong! Latency is 12ms. Bot is fully online.'
         }
       },
       {
@@ -64,7 +64,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
         position: { x: 440, y: 280 },
         data: {
           label: 'Send FAQ Card',
-          title: 'Yapin Server FAQ 📖',
+          title: 'Yapin Server FAQ ',
           description:
             'Hey {user}! Welcome to our official server.\n\n**Commands**:\n• `/ping` - Test bot responsiveness\n• `/faq` - View server guidelines\n\n**Guidelines**:\n1. Be friendly to fellow yappers.\n2. No spam in general chat.',
           color: '#3b82f6',
@@ -139,7 +139,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
     tag: 'Moderation & Safety',
     description:
       'Monitors every incoming chat message, verifies the user is not an administrator, filters prohibited keywords, deletes offending messages, and issues an inline warning.',
-    icon: '🛡️',
+    icon: 'Shield',
     nodes: [
       {
         id: 'mod-msg',
@@ -197,7 +197,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
         position: { x: 1520, y: 200 },
         data: {
           label: 'Send Warning',
-          message: '⚠️ Warning @{user}: Inappropriate language is not permitted here!'
+          message: 'Warning @{user}: Inappropriate language is not permitted here!'
         }
       },
       {
@@ -250,7 +250,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
     tag: 'Community Games',
     description:
       'Features a rate-limited /roll dice game picking random rewards, and a global community counter stored in session memory.',
-    icon: '🎲',
+    icon: 'Dices',
     nodes: [
       {
         id: 'cmd-roll',
@@ -279,7 +279,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
         data: {
           label: 'Pick Random Outcome',
           replies:
-            '🎲 {user} rolled a **1**! Critical fail! 💀\n🎲 {user} rolled a **7**! Lucky throw! 🍀\n🎲 {user} rolled a **14**! Solid roll! ⚡\n🎲 {user} rolled a **20**! Critical victory! 🎉'
+            '{user} rolled a **1**! Critical fail! \n{user} rolled a **7**! Lucky throw! \n{user} rolled a **14**! Solid roll! \n{user} rolled a **20**! Critical victory! '
         }
       },
       {
@@ -288,7 +288,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
         position: { x: 800, y: 220 },
         data: {
           label: 'Cooldown Warning',
-          message: '⏳ Please slow down @{user}! Try rolling again in a few seconds.'
+          message: 'Please slow down @{user}! Try rolling again in a few seconds.'
         }
       },
       {
@@ -318,7 +318,7 @@ export const PRESET_TEMPLATES: BotTemplate[] = [
         position: { x: 800, y: 380 },
         data: {
           label: 'Display Count Card',
-          title: 'Community Counter 🏆',
+          title: 'Community Counter ',
           description:
             'Current Count: **{var:global_count}**\n\nIncremented by @{user}!\nKeep the streak going.',
           color: '#10b981',

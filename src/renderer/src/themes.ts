@@ -161,12 +161,28 @@ export function applyTheme(themeId: string, customOverrides?: Record<string, str
   // Apply base theme variables
   Object.entries(theme.vars).forEach(([key, value]) => {
     root.style.setProperty(key, value)
+    if (key === '--color-primary') {
+      root.style.setProperty('--accent-primary', value)
+    }
+    if (key === '--color-primary-hover') {
+      root.style.setProperty('--accent-primary-hover', value)
+    }
   })
 
   // Apply custom overrides if any
   const overrides = customOverrides ?? getCustomThemeColors()
   Object.entries(overrides).forEach(([key, value]) => {
-    if (value) root.style.setProperty(key, value)
+    if (value) {
+      root.style.setProperty(key, value)
+      if (key === '--color-primary' || key === '--accent-primary') {
+        root.style.setProperty('--color-primary', value)
+        root.style.setProperty('--accent-primary', value)
+      }
+      if (key === '--color-primary-hover' || key === '--accent-primary-hover') {
+        root.style.setProperty('--color-primary-hover', value)
+        root.style.setProperty('--accent-primary-hover', value)
+      }
+    }
   })
 
   try {

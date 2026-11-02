@@ -20,7 +20,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
     category: 'utility',
     description:
       'Creates a clean Rich Card poll for community voting with Agree, Disagree, and Neutral choices.',
-    icon: '📊',
+    icon: 'ChartBar',
     nodeCount: 3,
     nodes: (offsetY: number) => [
       {
@@ -39,7 +39,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
         position: { x: 440, y: offsetY },
         data: {
           label: 'Poll Rich Card',
-          title: '📊 Community Poll',
+          title: 'Community Poll',
           description:
             '**Question**: {args}\n\n1️⃣ Agree\n2️⃣ Disagree\n3️⃣ Neutral\n\n*Cast your reaction vote below!*',
           color: '#6366f1',
@@ -65,7 +65,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
     commandName: '/flip',
     category: 'fun',
     description: 'Flips a virtual coin and returns random Heads or Tails with clean formatting.',
-    icon: '🪙',
+    icon: 'Coins',
     nodeCount: 3,
     nodes: (offsetY: number) => [
       {
@@ -84,7 +84,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
         position: { x: 440, y: offsetY },
         data: {
           label: 'Coin Outcome',
-          replies: '🪙 The coin landed on: **HEADS**!\n🪙 The coin landed on: **TAILS**!'
+          replies: 'The coin landed on: **HEADS**!\nThe coin landed on: **TAILS**!'
         }
       },
       {
@@ -107,7 +107,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
     category: 'moderation',
     description:
       'Detects unauthorized discord/yapin invite links in chat, immediately deletes the message, and warns the poster.',
-    icon: '🛡️',
+    icon: 'Shield',
     nodeCount: 4,
     nodes: (offsetY: number) => [
       {
@@ -145,7 +145,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
         position: { x: 1160, y: offsetY - 40 },
         data: {
           label: 'Warn User',
-          message: '🚫 Unauthorized advertising is not permitted here, @{user}!'
+          message: 'Unauthorized advertising is not permitted here, @{user}!'
         }
       }
     ],
@@ -158,7 +158,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
     category: 'moderation',
     description:
       'Restricts /warn to administrators; outputs an official moderation banner into the channel.',
-    icon: '⚠️',
+    icon: 'TriangleAlert',
     nodeCount: 4,
     nodes: (offsetY: number) => [
       {
@@ -188,7 +188,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
         position: { x: 800, y: offsetY - 60 },
         data: {
           label: 'Official Warning Card',
-          title: '⚠️ Official Staff Warning',
+          title: 'Official Staff Warning',
           description: '**Reason**: {args}\n\n*Please adhere to community rules.*',
           color: '#f59e0b',
           footer: 'Enforced by @{user}'
@@ -200,7 +200,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
         position: { x: 800, y: offsetY + 120 },
         data: {
           label: 'Permission Denied',
-          message: '❌ You must be an administrator to issue /warn.'
+          message: 'You must be an administrator to issue /warn.'
         }
       }
     ],
@@ -213,7 +213,7 @@ export const COMMAND_PACKAGES: CommandPackage[] = [
     category: 'community',
     description:
       'Awards 10 XP once per minute per user on chat messages, incrementing a persistent session XP pool.',
-    icon: '⚡',
+    icon: 'Zap',
     nodeCount: 4,
     nodes: (offsetY: number) => [
       {

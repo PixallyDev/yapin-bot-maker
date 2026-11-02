@@ -1,5 +1,6 @@
 import { BotNode, BotEdge } from './types'
-import { validateGraph } from '../../main/botRunner'
+import { validateGraph } from '../../shared/graph'
+import { cleanProjectGraph } from '../../shared/nodeSupport'
 export interface Folder {
   id: string
   name: string
@@ -22,6 +23,7 @@ export const defaultFolders: Folder[] = [
   { id: 'disabled', name: 'Disabled', color: '#ed4245', isOpen: true, isDisabled: true }
 ]
 export function newFlow(name: string, nodes: BotNode[] = [], edges: BotEdge[] = []): Flow {
+  ;({ nodes, edges } = cleanProjectGraph({ nodes, edges }))
   validateGraph({ token: '', nodes, edges })
   const ids = new Map(nodes.map((n) => [n.id, crypto.randomUUID()]))
   return {

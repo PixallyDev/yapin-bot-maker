@@ -1,4 +1,6 @@
 import React, { useState } from 'react'
+import { ToggleSwitch } from './ToggleSwitch'
+import { Icon } from './Icon'
 
 interface ToolbarProps {
   rememberToken: boolean
@@ -15,6 +17,7 @@ interface ToolbarProps {
   onLoadProject: () => void
   onNewCanvas: () => void
   onOpenTemplates: () => void
+  onOpenBotSettings?: () => void
   projectName?: string
 }
 
@@ -33,6 +36,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onLoadProject,
   onNewCanvas,
   onOpenTemplates,
+  onOpenBotSettings,
   projectName = 'Default Ping & FAQ Bot'
 }) => {
   const [showToken, setShowToken] = useState(false)
@@ -42,13 +46,21 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       <div className="toolbar-left">
         <div className="app-branding">
           <div className="app-logo">
-            <span>⚡</span>
+            <span>
+              <Icon name="Zap" />
+            </span>
           </div>
           <div className="app-title-group">
-            <span className="app-title">Flow Studio</span>
-            <span className="project-name-badge" title={`Active Project: ${projectName}`}>
-              📁 {projectName}
-            </span>
+            <span className="app-title">Yapper Maker</span>
+            <button
+              type="button"
+              className="project-name-badge project-name-btn"
+              onClick={onOpenBotSettings}
+              title={`Configure ${projectName} settings`}
+            >
+              <Icon name="Folder" /> {projectName}
+              {onOpenBotSettings && <Icon name="Settings" size={12} className="badge-gear-icon" />}
+            </button>
           </div>
         </div>
 
@@ -69,7 +81,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               onClick={() => setShowToken(!showToken)}
               title={showToken ? 'Hide Token' : 'Show Token'}
             >
-              {showToken ? '🙈' : '👁️'}
+              {showToken ? <Icon name="EyeOff" /> : <Icon name="Eye" />}
             </button>
           </div>
         </div>
@@ -82,11 +94,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               : 'Secure token storage is unavailable'
           }
         >
-          <input
-            type="checkbox"
+          <ToggleSwitch
+            size="sm"
             checked={rememberToken}
             disabled={!tokenStorageAvailable && !rememberToken}
-            onChange={(event) => onRememberToken(event.target.checked)}
+            onChange={onRememberToken}
+            label="Remember token"
           />
           <span>Remember Token</span>
         </label>
@@ -116,7 +129,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={onOpenTemplates}
             title="Browse starter flow templates"
           >
-            <span>✨</span> Templates
+            <span>
+              <Icon name="Sparkles" />
+            </span>{' '}
+            Templates
           </button>
           <button
             type="button"
@@ -124,7 +140,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={onNewCanvas}
             title="Reset to default blank starter nodes"
           >
-            <span>📄</span> Clear
+            <span>
+              <Icon name="FileText" />
+            </span>{' '}
+            Clear
           </button>
           <button
             type="button"
@@ -132,7 +151,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={onLoadProject}
             title="Load project from a .yapbot.json file"
           >
-            <span>📂</span> Load
+            <span>
+              <Icon name="FolderOpen" />
+            </span>{' '}
+            Load
           </button>
           <button
             type="button"
@@ -140,8 +162,24 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             onClick={onSaveProject}
             title="Save current canvas to a .yapbot.json file"
           >
-            <span>💾</span> Save
+            <span>
+              <Icon name="Save" />
+            </span>{' '}
+            Save
           </button>
+          {onOpenBotSettings && (
+            <button
+              type="button"
+              className="toolbar-btn btn-secondary"
+              onClick={onOpenBotSettings}
+              title="Open Bot Settings & Permissions"
+            >
+              <span>
+                <Icon name="Settings" />
+              </span>{' '}
+              Settings
+            </button>
+          )}
         </div>
 
         <button
@@ -161,11 +199,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span className="btn-spinner">Connecting...</span>
           ) : isRunning ? (
             <>
-              <span>⏹</span> Stop Bot
+              <span>
+                <Icon name="Square" />
+              </span>{' '}
+              Stop Bot
             </>
           ) : (
             <>
-              <span>▶</span> Start Bot
+              <span>
+                <Icon name="Play" />
+              </span>{' '}
+              Start Bot
             </>
           )}
         </button>

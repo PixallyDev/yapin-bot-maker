@@ -1,5 +1,6 @@
 import { BotNode, BotEdge } from './types'
 import { PRESET_TEMPLATES } from './templates'
+import { cleanProjectGraph } from '../../shared/nodeSupport'
 
 export interface BotProjectRecord {
   flows?: import('./flows').Flow[]
@@ -14,6 +15,12 @@ export interface BotProjectRecord {
   nodes: BotNode[]
   edges: BotEdge[]
   token?: string
+  icon?: string
+  iconBg?: string
+  prefix?: string
+  location?: string
+  permissions?: number
+  clientId?: string
 }
 
 const PROJECTS_STORAGE_KEY = 'yapin_bot_projects_list'
@@ -28,7 +35,8 @@ const DEFAULT_PROJECTS: BotProjectRecord[] = [
     nodeCount: PRESET_TEMPLATES[0].nodes.length,
     edgeCount: PRESET_TEMPLATES[0].edges.length,
     nodes: PRESET_TEMPLATES[0].nodes,
-    edges: PRESET_TEMPLATES[0].edges
+    edges: PRESET_TEMPLATES[0].edges,
+    prefix: '/'
   },
   {
     id: 'proj-auto-mod',
@@ -38,7 +46,8 @@ const DEFAULT_PROJECTS: BotProjectRecord[] = [
     nodeCount: PRESET_TEMPLATES[1].nodes.length,
     edgeCount: PRESET_TEMPLATES[1].edges.length,
     nodes: PRESET_TEMPLATES[1].nodes,
-    edges: PRESET_TEMPLATES[1].edges
+    edges: PRESET_TEMPLATES[1].edges,
+    prefix: '/'
   },
   {
     id: 'proj-counter-fun',
@@ -48,7 +57,8 @@ const DEFAULT_PROJECTS: BotProjectRecord[] = [
     nodeCount: PRESET_TEMPLATES[2].nodes.length,
     edgeCount: PRESET_TEMPLATES[2].edges.length,
     nodes: PRESET_TEMPLATES[2].nodes,
-    edges: PRESET_TEMPLATES[2].edges
+    edges: PRESET_TEMPLATES[2].edges,
+    prefix: '/'
   }
 ]
 
@@ -61,7 +71,20 @@ export function getSavedProjects(): BotProjectRecord[] {
       return DEFAULT_PROJECTS
     }
     const parsed = JSON.parse(raw) as BotProjectRecord[]
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_PROJECTS
+    if (!Array.isArray(parsed) || parsed.length === 0) return DEFAULT_PROJECTS
+    const cleaned = parsed.map((project) => {
+      const clean = cleanProjectGraph(project)
+      return { ...clean, nodeCount: clean.nodes.length, edgeCount: clean.edges.length }
+    })
+    const serialized = JSON.stringify(cleaned)
+    if (serialized !== raw) {
+      try {
+        window.localStorage.setItem(PROJECTS_STORAGE_KEY, serialized)
+      } catch {
+        /* Still restore the cleaned project if storage is full. */
+      }
+    }
+    return cleaned
   } catch {
     return DEFAULT_PROJECTS
   }
@@ -70,6 +93,8 @@ export function getSavedProjects(): BotProjectRecord[] {
 export function saveProjectRecord(project: BotProjectRecord): void {
   if (typeof window === 'undefined') return
   try {
+    project = cleanProjectGraph(project)
+    project = { ...project, nodeCount: project.nodes.length, edgeCount: project.edges.length }
     const existing = getSavedProjects()
     const index = existing.findIndex((p) => p.id === project.id)
     let updated: BotProjectRecord[]
@@ -130,18 +155,44 @@ export function duplicateProjectRecord(id: string): BotProjectRecord | null {
   }
 }
 
-export function createNewProjectRecord(name?: string): BotProjectRecord {
+export interface CreateProjectOptions {
+  name?: string
+  template?: 'starter' | 'blank'
+  location?: string
+  icon?: string
+  iconBg?: string
+  prefix?: string
+}
+
+export function createNewProjectRecord(
+  optionsOrName?: string | CreateProjectOptions
+): BotProjectRecord {
+  const opts: CreateProjectOptions =
+    typeof optionsOrName === 'string' ? { name: optionsOrName } : optionsOrName || {}
+
   const newId = `proj-${Date.now().toString(36)}`
+  const isBlank = opts.template === 'blank'
   const starter = PRESET_TEMPLATES[0]
+
+  const nodes = isBlank ? [] : starter.nodes
+  const edges = isBlank ? [] : starter.edges
+
   const newProj: BotProjectRecord = {
     id: newId,
-    name: name?.trim() || 'Untitled Bot Project',
-    description: 'Fresh visual workflow canvas.',
+    name: opts.name?.trim() || 'Untitled Bot Project',
+    description: isBlank
+      ? 'Clean blank canvas workflow.'
+      : 'Starter bot workflow with /ping and FAQ.',
     lastModified: Date.now(),
-    nodeCount: starter.nodes.length,
-    edgeCount: starter.edges.length,
-    nodes: starter.nodes,
-    edges: starter.edges
+    nodeCount: nodes.length,
+    edgeCount: edges.length,
+    nodes,
+    edges,
+    icon: opts.icon || 'Bot',
+    iconBg: opts.iconBg || '#3b82f6',
+    prefix: opts.prefix || '/',
+    location:
+      opts.location || `C:\\YapinProjects\\${opts.name?.trim().replace(/\s+/g, '') || 'Bot'}`
   }
   saveProjectRecord(newProj)
   return newProj

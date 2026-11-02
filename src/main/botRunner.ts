@@ -1,255 +1,18 @@
-export interface BotLogPayload {
-  timestamp: string
-  level: 'info' | 'warn' | 'error' | 'success'
-  message: string
-}
-
-export interface NodeGraphEdge {
-  id: string
-  source: string
-  target: string
-  sourceHandle?: string | null
-  targetHandle?: string | null
-}
-
-export interface NodeGraphNode {
-  id: string
-  type: string
-  data: Record<string, unknown>
-  position: { x: number; y: number }
-}
-
-export interface BotGraphPayload {
-  flows?: {
-    id: string
-    name: string
-    folderId?: string
-    color: string
-    isOpen: boolean
-    isDisabled: boolean
-    nodes: NodeGraphNode[]
-    edges: NodeGraphEdge[]
-  }[]
-  folders?: { id: string; name: string; color: string; isOpen: boolean; isDisabled: boolean }[]
-  token: string
-  nodes: NodeGraphNode[]
-  edges: NodeGraphEdge[]
-  name?: string
-}
-
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-const CONDITION_TYPES = new Set(['textCondition', 'checkUserRole', 'cooldownTimer'])
-
-export function isConditionNode(type: string): boolean {
-  return CONDITION_TYPES.has(type)
-}
-
-/** Validate untrusted IPC and project data before it reaches React Flow or the runner. */
-export function validateGraph(value: unknown): asserts value is BotGraphPayload {
-  if (
-    !isRecord(value) ||
-    typeof value.token !== 'string' ||
-    !Array.isArray(value.nodes) ||
-    !Array.isArray(value.edges) ||
-    (value.name !== undefined && typeof value.name !== 'string')
-  ) {
-    throw new Error('Project must contain a token string, nodes array and edges array.')
-  }
-  if (value.flows !== undefined) {
-    if (!Array.isArray(value.flows) || !Array.isArray(value.folders))
-      throw new Error('Invalid flows or folders.')
-    const ids = new Set<string>()
-    for (const folder of value.folders) {
-      if (
-        !isRecord(folder) ||
-        typeof folder.id !== 'string' ||
-        ids.has(folder.id) ||
-        typeof folder.name !== 'string' ||
-        typeof folder.color !== 'string' ||
-        typeof folder.isOpen !== 'boolean' ||
-        typeof folder.isDisabled !== 'boolean'
-      )
-        throw new Error('Invalid folder.')
-      ids.add(folder.id)
-    }
-    const flowIds = new Set<string>()
-    for (const flow of value.flows) {
-      if (
-        !isRecord(flow) ||
-        typeof flow.id !== 'string' ||
-        flowIds.has(flow.id) ||
-        typeof flow.name !== 'string' ||
-        typeof flow.color !== 'string' ||
-        typeof flow.isOpen !== 'boolean' ||
-        typeof flow.isDisabled !== 'boolean' ||
-        (flow.folderId !== undefined && !ids.has(String(flow.folderId)))
-      )
-        throw new Error('Invalid flow.')
-      flowIds.add(flow.id)
-      validateGraph({ token: '', nodes: flow.nodes, edges: flow.edges })
-    }
-  }
-  const nodes = new Map<string, Record<string, unknown>>()
-  for (const node of value.nodes) {
-    if (
-      !isRecord(node) ||
-      typeof node.id !== 'string' ||
-      !node.id ||
-      nodes.has(node.id) ||
-      !isRecord(node.data) ||
-      !isRecord(node.position) ||
-      typeof node.position.x !== 'number' ||
-      !Number.isFinite(node.position.x) ||
-      typeof node.position.y !== 'number' ||
-      !Number.isFinite(node.position.y)
-    ) {
-      throw new Error('Each node needs a unique ID, data and a finite canvas position.')
-    }
-    const data = node.data
-    switch (node.type) {
-      case 'onMessage':
-        if (typeof data.ignoreBots !== 'boolean') throw new Error('On Message needs ignoreBots.')
-        break
-      case 'onCommand':
-        if (
-          typeof data.commandName !== 'string' ||
-          !/^[a-z0-9_-]{1,32}$/.test(data.commandName) ||
-          typeof data.description !== 'string' ||
-          data.description.length > 100
-        ) {
-          throw new Error(
-            'Commands need a 1–32 character lowercase name and description up to 100 characters.'
-          )
-        }
-        break
-      case 'textCondition':
-        if (
-          !['contains', 'equals', 'starts_with', 'ends_with'].includes(String(data.operator)) ||
-          typeof data.value !== 'string' ||
-          typeof data.caseSensitive !== 'boolean'
-        ) {
-          throw new Error('Invalid text condition settings.')
-        }
-        break
-      case 'checkUserRole':
-        if (
-          !['username', 'user_id', 'is_bot'].includes(String(data.checkType)) ||
-          !['equals', 'not_equals', 'contains'].includes(String(data.operator)) ||
-          typeof data.value !== 'string'
-        ) {
-          throw new Error('Invalid check user/role settings.')
-        }
-        break
-      case 'cooldownTimer':
-        if (
-          typeof data.seconds !== 'number' ||
-          !Number.isFinite(data.seconds) ||
-          data.seconds <= 0 ||
-          (data.scope !== undefined && !['user', 'channel', 'global'].includes(String(data.scope)))
-        ) {
-          throw new Error('Cooldown timer requires a positive number of seconds.')
-        }
-        break
-      case 'setVariable':
-        if (
-          typeof data.varName !== 'string' ||
-          !/^[a-zA-Z0-9_-]{1,64}$/.test(data.varName) ||
-          typeof data.value !== 'string' ||
-          (data.operation !== undefined &&
-            !['set', 'increment', 'decrement'].includes(String(data.operation)))
-        ) {
-          throw new Error('Invalid set variable settings.')
-        }
-        break
-      case 'getVariable':
-        if (
-          typeof data.varName !== 'string' ||
-          !/^[a-zA-Z0-9_-]{1,64}$/.test(data.varName) ||
-          (data.fallback !== undefined && typeof data.fallback !== 'string')
-        ) {
-          throw new Error('Invalid get variable settings.')
-        }
-        break
-      case 'sendReply':
-        if (typeof data.message !== 'string') throw new Error('Send Reply needs message text.')
-        break
-      case 'sendRichMessage':
-        if (
-          (data.title !== undefined && typeof data.title !== 'string') ||
-          (data.description !== undefined && typeof data.description !== 'string') ||
-          (data.color !== undefined && typeof data.color !== 'string')
-        ) {
-          throw new Error('Invalid rich message settings.')
-        }
-        if (!data.title && !data.description) {
-          throw new Error('Send Rich Message requires a title or description.')
-        }
-        break
-      case 'randomReply':
-        if (!Array.isArray(data.replies) && typeof data.replies !== 'string') {
-          throw new Error('Random Reply requires a list of replies.')
-        }
-        break
-      case 'waitDelay':
-        if (
-          typeof data.seconds !== 'number' ||
-          !Number.isFinite(data.seconds) ||
-          data.seconds <= 0
-        ) {
-          throw new Error('Wait delay requires a positive number of seconds.')
-        }
-        break
-      case 'moderateMessage':
-        if (!['delete', 'timeout', 'kick'].includes(String(data.actionType))) {
-          throw new Error('Invalid moderation action settings.')
-        }
-        break
-      case 'logConsole':
-        if (
-          typeof data.message !== 'string' ||
-          !['info', 'warn', 'error', 'success'].includes(String(data.level))
-        ) {
-          throw new Error('Invalid console action settings.')
-        }
-        break
-      default:
-        throw new Error(`Unsupported node type: ${String(node.type)}`)
-    }
-    nodes.set(node.id, node)
-  }
-  const edgeIds = new Set<string>()
-  for (const edge of value.edges) {
-    if (
-      !isRecord(edge) ||
-      typeof edge.id !== 'string' ||
-      !edge.id ||
-      edgeIds.has(edge.id) ||
-      typeof edge.source !== 'string' ||
-      typeof edge.target !== 'string' ||
-      !nodes.has(edge.source) ||
-      !nodes.has(edge.target)
-    ) {
-      throw new Error('Each connection needs a unique ID and existing source and target nodes.')
-    }
-    const source = nodes.get(edge.source)!
-    const target = nodes.get(edge.target)!
-    const isCondition = isConditionNode(String(source.type))
-    if (
-      target.type === 'onMessage' ||
-      target.type === 'onCommand' ||
-      (edge.targetHandle != null && edge.targetHandle !== 'in') ||
-      (isCondition
-        ? edge.sourceHandle !== 'true' && edge.sourceHandle !== 'false'
-        : edge.sourceHandle != null && edge.sourceHandle !== 'out')
-    ) {
-      throw new Error('Invalid connection handles. Conditions require true or false outputs.')
-    }
-    edgeIds.add(edge.id)
-  }
-}
+import { CatalogRuntime, regexMatch, type RuntimeOptions } from './catalogRuntime'
+import { jsonValue, jsonPath, stringify, record } from './runtimeValues'
+import { resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { CATALOG_BY_TYPE } from '../renderer/src/data/nodeCatalog'
+import { isSupportedNodeType } from '../shared/nodeSupport'
+import {
+  compileGraph,
+  isRecord,
+  type BotGraphPayload,
+  type BotLogPayload,
+  type NodeGraphNode,
+  type NodeGraphEdge
+} from '../shared/graph'
+export * from '../shared/graph'
 
 export type LogEmitter = (log: BotLogPayload) => void
 export type StatusEmitter = (running: boolean) => void
@@ -261,8 +24,11 @@ type Session = {
   last: string | number
   nodes: Map<string, NodeGraphNode>
   outgoing: Map<string, NodeGraphEdge[]>
-  variables: Map<string, string | number>
+  variables: Map<string, unknown>
+  runtime: CatalogRuntime | null
+  queue: Promise<unknown>
   cooldowns: Map<string, number>
+  unsupportedWarnings: Set<string>
 }
 
 type EventBudget = { hops: number; warned: boolean }
@@ -281,6 +47,10 @@ type MessageContext = {
   serverId: string
   authorBot: boolean
   args: string
+  eventId: string | number
+  raw: Record<string, unknown>
+  stopped: boolean
+  localVariables: Map<string, unknown>
 }
 
 class ApiError extends Error {
@@ -312,79 +82,45 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
   })
 }
 
-export function compileGraph(input: unknown): {
-  graph: BotGraphPayload
-  outgoing: Map<string, NodeGraphEdge[]>
-  commands: { name: string; description: string }[]
-} {
-  validateGraph(input)
-  const graph = structuredClone(input)
-  if (graph.flows) {
-    const enabled = graph.flows.filter(
-      (f) =>
-        !f.isDisabled &&
-        !graph.folders?.some((folder) => folder.id === f.folderId && folder.isDisabled)
-    )
-    graph.nodes = enabled.flatMap((f) =>
-      f.nodes.map((n) => ({ ...n, id: JSON.stringify([f.id, n.id]) }))
-    )
-    graph.edges = enabled.flatMap((f) =>
-      f.edges.map((e) => ({
-        ...e,
-        id: JSON.stringify([f.id, e.id]),
-        source: JSON.stringify([f.id, e.source]),
-        target: JSON.stringify([f.id, e.target])
-      }))
-    )
-  }
-  graph.token = graph.token.trim()
-  const outgoing = new Map<string, NodeGraphEdge[]>()
-  const indegree = new Map(graph.nodes.map((node) => [node.id, 0]))
-  for (const edge of graph.edges) {
-    outgoing.set(edge.source, [...(outgoing.get(edge.source) ?? []), edge])
-    indegree.set(edge.target, indegree.get(edge.target)! + 1)
-  }
-  // Reject cycles before executing any actions, including cycles in disconnected sections.
-  const ready = graph.nodes.filter((node) => indegree.get(node.id) === 0).map((node) => node.id)
-  for (let i = 0; i < ready.length; i++) {
-    for (const edge of outgoing.get(ready[i]) ?? []) {
-      const count = indegree.get(edge.target)! - 1
-      indegree.set(edge.target, count)
-      if (count === 0) ready.push(edge.target)
-    }
-  }
-  if (ready.length !== graph.nodes.length)
-    throw new Error('The bot graph contains a cycle. Remove looping connections.')
-  const commands = graph.nodes
-    .filter((node) => node.type === 'onCommand')
-    .map((node) => ({
-      name: String(node.data.commandName),
-      description: String(node.data.description)
-    }))
-  if (
-    commands.length > 100 ||
-    new Set(commands.map((command) => command.name)).size !== commands.length
-  ) {
-    throw new Error('Use at most 100 commands, each with a unique name.')
-  }
-  if (!graph.nodes.some((node) => node.type === 'onMessage' || node.type === 'onCommand')) {
-    throw new Error('Add an On Message or On Command trigger before starting.')
-  }
-  return { graph, outgoing, commands }
-}
-
 export class BotRunner {
   private session: Session | null = null
   private isRunning = false
   private botInfo: { id: string; name: string } | null = null
+  private emptyVariableText = ''
 
   constructor(
     private emitLog: LogEmitter,
-    private emitStatus: StatusEmitter
+    private emitStatus: StatusEmitter,
+    private runtimeOptions: RuntimeOptions = { projectDirectory: resolve('.yapin-data') }
   ) {}
+
+  public configureRuntime(options: RuntimeOptions): void {
+    this.runtimeOptions = options
+  }
 
   public getStatus(): { running: boolean } {
     return { running: this.isRunning }
+  }
+
+  public getVariables(): Record<string, string | number> {
+    return this.session
+      ? Object.fromEntries(
+          [...this.session.variables].map(([key, value]) => [
+            key,
+            typeof value === 'string' || typeof value === 'number' ? value : stringify(value)
+          ])
+        )
+      : {}
+  }
+
+  public clearVariables(): void {
+    this.session?.variables.clear()
+  }
+
+  public setOptions(options: unknown): void {
+    if (isRecord(options) && typeof options.emptyVariableText === 'string') {
+      this.emptyVariableText = options.emptyVariableText.slice(0, 100)
+    }
   }
 
   public getBotInfo(): { id: string; name: string } | null {
@@ -406,9 +142,18 @@ export class BotRunner {
         last: 0,
         nodes: new Map(graph.nodes.map((node) => [node.id, node])),
         outgoing,
-        variables: new Map<string, string | number>(),
-        cooldowns: new Map<string, number>()
+        variables: new Map<string, unknown>(),
+        runtime: null,
+        queue: Promise.resolve(),
+        cooldowns: new Map<string, number>(),
+        unsupportedWarnings: new Set<string>()
       }
+      const runtimeSession = session
+      session.runtime = new CatalogRuntime(
+        this.runtimeOptions,
+        (method, path, body) => this.request(runtimeSession, method, path, body),
+        (message) => this.log('warn', message)
+      )
       this.session = session
       this.log(
         'info',
@@ -431,6 +176,7 @@ export class BotRunner {
       this.emitStatus(true)
       this.log('success', `[Yapin API] Connected as @${name}. Listening for new events.`)
       const activeSession = session
+      this.startCatalogTriggers(activeSession)
       void this.poll(activeSession).catch((error: unknown) => {
         if (!activeSession.controller.signal.aborted) {
           this.log('error', `[Runner] ${errorMessage(error)}`)
@@ -471,6 +217,7 @@ export class BotRunner {
     // Never forward a token, including one echoed in an API error or template.
     const token = this.session?.graph.token
     if (token) message = message.split(token).join('[hidden]')
+    message = this.session?.runtime?.redact(message) ?? message
     this.emitLog({
       timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
       level,
@@ -578,7 +325,12 @@ export class BotRunner {
             continue
           }
           if (BigInt(event.id) <= BigInt(session.last)) continue
-          await this.handleEvent(session, event.type, event.data)
+          const eventType = event.type,
+            eventData = event.data,
+            eventId = event.id
+          await this.enqueue(session, () =>
+            this.handleEvent(session, eventType, eventData, eventId)
+          )
           session.last = event.id
         }
         if (BigInt(body.last) > BigInt(session.last)) session.last = body.last
@@ -600,87 +352,429 @@ export class BotRunner {
     }
   }
 
+  private enqueue(session: Session, action: () => Promise<void>): Promise<void> {
+    const next = session.queue
+      .catch(() => {})
+      .then(async () => {
+        session.controller.signal.throwIfAborted()
+        await action()
+      })
+    session.queue = next.catch(() => {})
+    return next
+  }
+
   private async handleEvent(
     session: Session,
     type: string,
-    data: Record<string, unknown>
+    data: Record<string, unknown>,
+    eventId: string | number = session.last,
+    onlyNode?: string
   ): Promise<void> {
-    if (type !== 'message') {
-      this.log('info', `[Event] ${type}`)
-      return
-    }
-    if (data.author_id === session.botId) return
+    if (type === 'message' && data.author_id === session.botId) return
     if (
-      typeof data.content !== 'string' ||
-      typeof data.channel_id !== 'string' ||
-      typeof data.id !== 'string'
+      type === 'message' &&
+      (typeof data.content !== 'string' ||
+        typeof data.channel_id !== 'string' ||
+        typeof data.id !== 'string')
     ) {
-      this.log('warn', '[Runner] Skipped a message without content, channel ID or message ID.')
+      this.log('warn', '[Runner] Skipped a malformed message event.')
       return
     }
-
-    const cmdMatch = /^[!/]([a-z0-9_-]+)(?:\s+(.*))?$/i.exec(data.content.trim())
+    const content = typeof data.content === 'string' ? data.content : ''
+    const rawPrefix = (session.graph.commandPrefix || session.graph.prefix || '/').trim() || '/'
+    const escapedPrefix = rawPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const prefixPattern =
+      escapedPrefix === '/' || escapedPrefix === '!' ? '[!/]' : `(?:${escapedPrefix}|[!/])`
+    const cmdMatch = new RegExp(`^${prefixPattern}([a-z0-9_-]+)(?:\\s+([\\s\\S]*))?$`, 'i').exec(
+      content.trim()
+    )
     const command =
       typeof data.command === 'string' ? data.command.toLowerCase() : cmdMatch?.[1]?.toLowerCase()
-
     const context: MessageContext = {
       author:
         typeof data.author === 'string'
           ? data.author
           : isRecord(data.author) && typeof data.author.username === 'string'
             ? data.author.username
-            : 'Unknown',
-      authorId:
-        typeof data.author_id === 'string'
-          ? data.author_id
-          : isRecord(data.author) && typeof data.author.id === 'string'
-            ? data.author.id
-            : '',
-      content: data.content,
-      channel: data.channel_id,
-      messageId: data.id,
-      serverId: typeof data.server_id === 'string' ? data.server_id : '',
+            : String(data.username ?? ''),
+      authorId: String(data.author_id ?? data.user_id ?? ''),
+      content,
+      channel: String(data.channel_id ?? ''),
+      messageId: String(data.message_id ?? data.id ?? ''),
+      serverId: String(data.server_id ?? ''),
       authorBot: data.author_bot === true || (isRecord(data.author) && data.author.bot === true),
-      args: typeof data.args === 'string' ? data.args : (cmdMatch?.[2] ?? '')
+      args: typeof data.args === 'string' ? data.args : (cmdMatch?.[2] ?? ''),
+      localVariables: new Map(),
+      eventId,
+      raw: data,
+      stopped: false
     }
-
     const budget: EventBudget = { hops: 0, warned: false }
+    if (
+      type === 'interaction' &&
+      (await session.runtime!.ticketInteraction(
+        data,
+        this.catalogContext(
+          session,
+          {
+            id: 'ticket-interaction',
+            type: 'catalog.ticketOpen',
+            position: { x: 0, y: 0 },
+            data: {}
+          },
+          context,
+          budget
+        )
+      ))
+    )
+      return
+    const eventNames: Record<string, string> = {
+      messageEdited: 'message_edit',
+      messageDeleted: 'message_delete',
+      directMessage: 'dm_message',
+      memberJoin: 'member_join',
+      memberLeave: 'member_leave',
+      memberBanned: 'member_ban',
+      reactionAdded: 'reaction_add',
+      reactionRemoved: 'reaction_remove',
+      botStarts: 'bot_start'
+    }
     for (const node of session.graph.nodes) {
       session.controller.signal.throwIfAborted()
-      const matches =
-        node.type === 'onMessage'
+      if (onlyNode && onlyNode !== node.id) continue
+      let matches =
+        !onlyNode &&
+        type === 'message' &&
+        (node.type === 'onMessage'
           ? !(node.data.ignoreBots && context.authorBot)
           : node.type === 'onCommand' &&
             !context.authorBot &&
             (!data.command_for || data.command_for === session.botId) &&
-            command === node.data.commandName
+            command === node.data.commandName)
+      if (node.type.startsWith('catalog.')) {
+        const id = node.type.slice(8),
+          schema = CATALOG_BY_TYPE.get(node.type)
+        if (!schema || schema.inputs.length || id === 'stickyNote' || id === 'functionCalled')
+          continue
+        if (onlyNode) matches = true
+        else if (eventNames[id]) matches = type === eventNames[id]
+        else if (type === 'message' && !context.authorBot) {
+          if (id === 'slashCommand')
+            matches =
+              content.trim().startsWith('/') &&
+              command === String(node.data.commandName).replace(/^\//, '').toLowerCase() &&
+              (!data.command_for || data.command_for === session.botId)
+          else if (id === 'messageContains')
+            matches = content.includes(String(node.data.text ?? ''))
+          else if (id === 'messageRegex') {
+            try {
+              matches = regexMatch(
+                String(node.data.pattern ?? ''),
+                String(node.data.flags ?? ''),
+                content
+              )
+            } catch (error) {
+              this.log('warn', `[Trigger] ${errorMessage(error)}`)
+            }
+          } else if (id === 'messageAttachment')
+            matches =
+              !!data.attachment || (Array.isArray(data.attachments) && data.attachments.length > 0)
+          else if (id === 'botMentioned')
+            matches = data.mentioned === true || content.includes(`<@${session.botId}>`)
+        }
+      }
       if (!matches) continue
+      if (
+        node.data.userId &&
+        String(node.data.userId) !== context.authorId &&
+        String(node.data.userId).toLowerCase() !== context.author.toLowerCase()
+      )
+        continue
+      if (node.data.channelId && String(node.data.channelId) !== context.channel) continue
+      if (node.data.serverId && String(node.data.serverId) !== context.serverId) continue
+      if (node.data.emoji && String(node.data.emoji) !== String(data.emoji ?? '')) continue
+      if (
+        node.data.fileType &&
+        data.attachment &&
+        !String(data.attachment).endsWith(String(node.data.fileType))
+      )
+        continue
+      context.stopped = false
+      if (node.data.saveToVariable && node.data.variableName) {
+        const map = node.data.variableScope === 'local' ? context.localVariables : session.variables
+        map.set(
+          String(node.data.variableName),
+          node.type === 'onCommand'
+            ? context.args
+            : node.type.startsWith('catalog.')
+              ? data
+              : content
+        )
+      }
+      context.localVariables.set('event', data)
       this.log('info', `[Trigger] ${String(node.data.label ?? node.id)}`)
       await this.execute(session, node.id, context, budget)
       if (budget.warned) break
     }
   }
 
-  private template(text: string, context: MessageContext, session: Session): string {
-    return text
-      .replace(/\{(author|user)\}/gi, () => context.author)
-      .replace(/\{content\}/gi, () => context.content)
-      .replace(/\{channel\}/gi, () => context.channel)
-      .replace(/\{args\}/gi, () => context.args)
-      .replace(/\{var:([a-zA-Z0-9_-]+)\}/gi, (_, varName: string) => {
-        const val = session.variables.get(varName)
-        return val !== undefined ? String(val) : ''
+  private startCatalogTriggers(session: Session): void {
+    const signal = session.controller.signal
+    const job = (node: NodeGraphNode, data: Record<string, unknown>): Promise<void> =>
+      this.enqueue(session, () =>
+        this.handleEvent(session, 'scheduled', data, session.last, node.id)
+      )
+    for (const node of session.graph.nodes.filter((node) => node.type === 'catalog.botStarts'))
+      void job(node, {}).catch((error) => {
+        if (!signal.aborted) this.log('error', `[Startup] ${errorMessage(error)}`)
       })
+    for (const node of session.graph.nodes) {
+      const id = node.type.replace('catalog.', '')
+      if (['messageEdited', 'messageDeleted', 'memberBanned'].includes(id))
+        this.log(
+          'warn',
+          `[Yapin API] ${id} events are not listed in the public event reference; this trigger will run only if the gateway delivers them.`
+        )
+      if (node.type === 'catalog.webhookListener') {
+        void this.enqueue(session, async () => {
+          const secretName = String(node.data.secretVariable ?? '')
+          const secret = process.env[secretName] ?? session.variables.get(secretName)
+          if (!secret) {
+            this.log(
+              'warn',
+              '[Webhook] Set the signing secret environment variable or startup variable before starting the bot.'
+            )
+            return
+          }
+          try {
+            session.runtime!.webhook({ ...node.data, secret }, signal, (data) => job(node, data))
+          } catch (error) {
+            this.log('warn', `[Webhook] ${errorMessage(error)}`)
+          }
+        }).catch(() => {})
+      }
+      const social = ['rss', 'youtube', 'reddit', 'twitch', 'githubRelease'].includes(id)
+      if (!social && node.type !== 'catalog.interval') continue
+      const seconds = Math.max(
+        social ? 30 : 0.1,
+        Number(node.data.interval ?? node.data.seconds ?? 60)
+      )
+      if (!Number.isFinite(seconds)) {
+        this.log('warn', '[Schedule] Invalid interval.')
+        continue
+      }
+      void (async () => {
+        let first = true,
+          attempted = false
+        while (!signal.aborted) {
+          if (!social || attempted) await wait(seconds * 1000, signal)
+          attempted = true
+          try {
+            if (social) {
+              const items = await session.runtime!.feed(node.type, node.data, signal)
+              const previous = session.runtime!.seen.get(node.id) ?? new Set<string>()
+              const ids = items.map((item) =>
+                createHash('sha256')
+                  .update(
+                    String(item.id ?? item.guid ?? item.url ?? item.link ?? JSON.stringify(item))
+                  )
+                  .digest('hex')
+              )
+              if (!first)
+                for (let i = items.length - 1; i >= 0; i--)
+                  if (!previous.has(ids[i]))
+                    await job(node, {
+                      ...items[i],
+                      content: String(items[i].title ?? items[i].text ?? ''),
+                      source: String(node.data.source)
+                    })
+              session.runtime!.seen.set(node.id, new Set([...ids, ...previous].slice(0, 1000)))
+            } else await job(node, { timestamp: new Date().toISOString() })
+            first = false
+          } catch (error) {
+            if (signal.aborted) throw error
+            this.log(
+              'warn',
+              `[Social/Schedule] ${errorMessage(error)}; retrying after the configured interval.`
+            )
+          }
+        }
+      })().catch(() => {})
+    }
+  }
+
+  private template(text: string, context: MessageContext, session: Session): string {
+    const builtins: Record<string, unknown> = {
+      ...context.raw,
+      user: context.author,
+      author: context.author,
+      authorId: context.authorId,
+      userId: context.authorId,
+      channel: context.channel,
+      channelId: context.channel,
+      serverId: context.serverId,
+      messageId: context.messageId,
+      content: context.content,
+      args: context.args,
+      command: { args: context.args },
+      event: context.raw,
+      item: context.localVariables.get('item'),
+      index: context.localVariables.get('index')
+    }
+    // One replacement pass: text supplied by a user is never reinterpreted as a variable template.
+    return text.replace(
+      /\{(var:)?([a-zA-Z0-9_.[\]-]+)\}/g,
+      (original, prefix: string | undefined, name: string) => {
+        const [first, ...rest] = name.replace(/\[(\d+)\]/g, '.$1').split('.')
+        let value: unknown
+        if (!prefix && Object.hasOwn(builtins, first))
+          value = rest.length ? jsonPath(builtins[first], rest.join('.')) : builtins[first]
+        else if (context.localVariables.has(name)) value = context.localVariables.get(name)
+        else if (session.variables.has(name)) value = session.variables.get(name)
+        else {
+          const base = context.localVariables.has(first)
+            ? context.localVariables.get(first)
+            : session.variables.get(first)
+          value = rest.length ? jsonPath(base, rest.join('.')) : base
+        }
+        return value === undefined ? (prefix ? this.emptyVariableText : original) : stringify(value)
+      }
+    )
+  }
+
+  private catalogContext(
+    session: Session,
+    node: NodeGraphNode,
+    context: MessageContext,
+    budget: EventBudget
+  ): import('./catalogRuntime').RuntimeContext {
+    const builtins: Record<string, unknown> = {
+      ...context.raw,
+      author: context.author,
+      user: context.author,
+      authorId: context.authorId,
+      userId: context.authorId,
+      content: context.content,
+      channel: context.channel,
+      channelId: context.channel,
+      serverId: context.serverId,
+      messageId: context.messageId,
+      args: context.args,
+      botId: session.botId,
+      event: context.raw
+    }
+    const get = (name: string): unknown => {
+      if (context.localVariables.has(name)) return context.localVariables.get(name)
+      if (session.variables.has(name)) return session.variables.get(name)
+      const [first, ...rest] = name.replace(/\[(\d+)\]/g, '.$1').split('.')
+      const value = context.localVariables.has(first)
+        ? context.localVariables.get(first)
+        : session.variables.has(first)
+          ? session.variables.get(first)
+          : builtins[first]
+      return rest.length ? jsonPath(value, rest.join('.')) : value
+    }
+    const expand = (raw: unknown): string => {
+      if (typeof raw !== 'string') return stringify(raw)
+      return this.template(raw, context, session)
+    }
+    const value = (raw: unknown): unknown => {
+      if (typeof raw !== 'string') return raw
+      const exact = /^\{(?:var:)?([a-zA-Z0-9_.[\]-]+)\}$/.exec(raw)
+      if (exact) return get(exact[1])
+      return jsonValue(expand(raw))
+    }
+    return {
+      signal: session.controller.signal,
+      event: builtins,
+      expand,
+      value,
+      get,
+      set: (name, value, scope = 'local') => {
+        if (!/^[a-zA-Z0-9_.-]{1,128}$/.test(name)) throw Error('Invalid variable name.')
+        ;(scope === 'global' ? session.variables : context.localVariables).set(name, value)
+      },
+      stopped: () => context.stopped,
+      stopFlow: () => {
+        context.stopped = true
+      },
+      stopBot: () => this.stop(),
+      branch: (handle) => this.execute(session, node.id, context, budget, handle, true),
+      call: async (name, args) => {
+        const fn = session.graph.nodes.find(
+          (n) => n.type === 'catalog.functionCalled' && n.data.name === name
+        )
+        if (!fn) throw Error(`Function ${name} was not found.`)
+        const locals = new Map(context.localVariables)
+        locals.set('arguments', args)
+        if (record(args)) for (const [key, value] of Object.entries(args)) locals.set(key, value)
+        const child = { ...context, localVariables: locals }
+        await this.execute(session, fn.id, child, budget, undefined, true)
+        if (child.stopped) context.stopped = true
+        return child.localVariables.get('return') ?? child.localVariables.get('result')
+      },
+      waitEvent: async (kind, data) => {
+        const timeout = Number(data.timeout ?? 60)
+        if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 3600)
+          throw Error('Event wait timeout must be between 0 and 3600 seconds.')
+        const deadline = Date.now() + timeout * 1000
+        let cursor = context.eventId
+        while (Date.now() < deadline) {
+          session.controller.signal.throwIfAborted()
+          const response = await this.request(
+            session,
+            'GET',
+            `/events?after=${encodeURIComponent(cursor)}&wait=${Math.max(1, Math.min(20, Math.ceil((deadline - Date.now()) / 1000)))}`
+          )
+          this.readPoll(response)
+          for (const event of response.events) {
+            if (!isRecord(event) || event.type !== kind || !isRecord(event.data)) continue
+            const incoming = event.data
+            if (String(incoming.channel_id ?? '') !== expand(data.channelId || context.channel))
+              continue
+            if (
+              data.userId &&
+              String(incoming.author_id ?? incoming.user_id ?? '') !== expand(data.userId)
+            )
+              continue
+            if (kind === 'message' && incoming.author_id === session.botId) continue
+            if (
+              data.messageId &&
+              kind === 'reaction_add' &&
+              String(incoming.message_id ?? '') !== expand(data.messageId)
+            )
+              continue
+            if (data.emoji && kind === 'reaction_add' && incoming.emoji !== expand(data.emoji))
+              continue
+            return incoming
+          }
+          cursor = response.last
+          await wait(250, session.controller.signal)
+        }
+        throw Error(`Timed out waiting for ${kind}.`)
+      }
+    }
   }
 
   private async execute(
     session: Session,
     triggerId: string,
     context: MessageContext,
-    budget: EventBudget
+    budget: EventBudget,
+    output?: string,
+    strict = false
   ): Promise<void> {
-    const stack = [...(session.outgoing.get(triggerId) ?? [])].reverse().map((edge) => edge.target)
-    while (stack.length) {
+    const stack = [...(session.outgoing.get(triggerId) ?? [])]
+      .filter(
+        (edge) =>
+          output === undefined ||
+          edge.sourceHandle === output ||
+          (output === 'try' && edge.sourceHandle === 'success') ||
+          (output === 'catch' && edge.sourceHandle === 'error')
+      )
+      .reverse()
+      .map((edge) => edge.target)
+    while (stack.length && !context.stopped) {
       session.controller.signal.throwIfAborted()
       if (budget.hops >= 50) {
         if (!budget.warned)
@@ -689,25 +783,111 @@ export class BotRunner {
             '[Runner] Event reached the 50 node-hop limit; remaining branches skipped.'
           )
         budget.warned = true
+        context.stopped = true
         return
       }
       budget.hops++
       const node = session.nodes.get(stack.pop()!)!
       let handle = 'out'
       try {
-        if (node.type === 'textCondition') {
-          const content = node.data.caseSensitive ? context.content : context.content.toLowerCase()
-          const value = node.data.caseSensitive
-            ? String(node.data.value)
-            : String(node.data.value).toLowerCase()
-          const match =
-            node.data.operator === 'equals'
-              ? content === value
-              : node.data.operator === 'starts_with'
-                ? content.startsWith(value)
-                : node.data.operator === 'ends_with'
-                  ? content.endsWith(value)
-                  : content.includes(value)
+        if (node.type.startsWith('catalog.')) {
+          if (!isSupportedNodeType(node.type)) {
+            if (!session.unsupportedWarnings.has(node.type)) {
+              session.unsupportedWarnings.add(node.type)
+              this.log('warn', `[BotRunner] Skipping unsupported node: ${node.type}`)
+            }
+            const edges = session.outgoing.get(node.id) ?? []
+            // Prefer the normal continuation; never fan out into mutually exclusive branches.
+            handle =
+              ['next', 'out', 'success'].find((output) =>
+                edges.some((edge) => (edge.sourceHandle ?? 'out') === output)
+              ) ??
+              edges[0]?.sourceHandle ??
+              'out'
+          } else {
+            const result = await session.runtime!.run(
+              node.type,
+              node.data,
+              this.catalogContext(session, node, context, budget)
+            )
+            handle = result.handle
+          }
+        } else if (node.type === 'textCondition') {
+          const compType = String(node.data.comparisonType ?? 'text')
+          let match = false
+
+          if (compType === 'number') {
+            const rawLeft =
+              node.data.leftValue !== undefined
+                ? this.template(String(node.data.leftValue), context, session)
+                : context.args
+            const numA = Number(rawLeft) || 0
+            const numB = Number(this.template(String(node.data.value ?? 0), context, session)) || 0
+            const op = String(node.data.operator ?? 'equals')
+            if (op === 'greater_than' || op === '>') match = numA > numB
+            else if (op === 'less_than' || op === '<') match = numA < numB
+            else if (op === 'greater_or_equal' || op === '>=') match = numA >= numB
+            else if (op === 'less_or_equal' || op === '<=') match = numA <= numB
+            else if (op === 'not_equals' || op === '!=') match = numA !== numB
+            else match = numA === numB
+          } else if (compType === 'user_role') {
+            const checkType = String(node.data.checkType ?? 'username')
+            const op = String(node.data.operator ?? 'equals')
+            const targetVal = String(node.data.value ?? '')
+              .toLowerCase()
+              .trim()
+            if (checkType === 'is_bot') {
+              match = context.authorBot === true
+            } else if (checkType === 'user_id') {
+              match =
+                op === 'equals'
+                  ? context.authorId.toLowerCase() === targetVal
+                  : op === 'not_equals'
+                    ? context.authorId.toLowerCase() !== targetVal
+                    : context.authorId.toLowerCase().includes(targetVal)
+            } else {
+              match =
+                op === 'equals'
+                  ? context.author.toLowerCase() === targetVal
+                  : op === 'not_equals'
+                    ? context.author.toLowerCase() !== targetVal
+                    : context.author.toLowerCase().includes(targetVal)
+            }
+          } else if (compType === 'variable') {
+            const varName = String(node.data.varName ?? '')
+            const valA = String(
+              context.localVariables.get(varName) ?? session.variables.get(varName) ?? ''
+            )
+            const valB = this.template(String(node.data.value ?? ''), context, session)
+            const op = String(node.data.operator ?? 'equals')
+            const caseSensitive = Boolean(node.data.caseSensitive)
+            const left = caseSensitive ? valA : valA.toLowerCase()
+            const right = caseSensitive ? valB : valB.toLowerCase()
+            if (op === 'not_equals') match = left !== right
+            else if (op === 'contains') match = left.includes(right)
+            else if (op === 'greater_than') match = Number(left) > Number(right)
+            else if (op === 'less_than') match = Number(left) < Number(right)
+            else match = left === right
+          } else {
+            const rawContent =
+              node.data.leftValue !== undefined
+                ? this.template(String(node.data.leftValue), context, session)
+                : context.content
+            const content = node.data.caseSensitive ? rawContent : rawContent.toLowerCase()
+            const rawVal = this.template(String(node.data.value ?? ''), context, session)
+            const value = node.data.caseSensitive ? rawVal : rawVal.toLowerCase()
+            match =
+              node.data.operator === 'equals'
+                ? content === value
+                : node.data.operator === 'not_equals'
+                  ? content !== value
+                  : node.data.operator === 'starts_with'
+                    ? content.startsWith(value)
+                    : node.data.operator === 'ends_with'
+                      ? content.endsWith(value)
+                      : content.includes(value)
+          }
+
           handle = match ? 'true' : 'false'
           this.log('info', `[Condition] ${node.id}: ${handle}`)
         } else if (node.type === 'checkUserRole') {
@@ -766,24 +946,27 @@ export class BotRunner {
         } else if (node.type === 'setVariable') {
           const varName = String(node.data.varName)
           const operation = String(node.data.operation ?? 'set')
+          const scope = String(node.data.scope ?? 'global')
+          const varMap = scope === 'local' ? context.localVariables : session.variables
           const expandedVal = this.template(String(node.data.value ?? ''), context, session)
 
           if (operation === 'increment') {
-            const current = Number(session.variables.get(varName) ?? 0)
+            const current = Number(varMap.get(varName) ?? 0)
             const add = Number(expandedVal) || 1
-            session.variables.set(varName, current + add)
+            varMap.set(varName, current + add)
           } else if (operation === 'decrement') {
-            const current = Number(session.variables.get(varName) ?? 0)
+            const current = Number(varMap.get(varName) ?? 0)
             const sub = Number(expandedVal) || 1
-            session.variables.set(varName, current - sub)
+            varMap.set(varName, current - sub)
           } else {
-            session.variables.set(varName, expandedVal)
+            varMap.set(varName, expandedVal)
           }
-          this.log('info', `[Variable] ${varName} = ${session.variables.get(varName)}`)
+          this.log('info', `[Variable (${scope})] ${varName} = ${varMap.get(varName)}`)
         } else if (node.type === 'getVariable') {
           const varName = String(node.data.varName)
           const fallback = String(node.data.fallback ?? '')
-          const val = session.variables.get(varName) ?? fallback
+          const val =
+            context.localVariables.get(varName) ?? session.variables.get(varName) ?? fallback
           this.log('info', `[Get Variable] ${varName} = ${val}`)
         } else if (node.type === 'sendReply') {
           const content = this.template(String(node.data.message), context, session)
@@ -901,6 +1084,109 @@ export class BotRunner {
             node.data.level as BotLogPayload['level'],
             this.template(String(node.data.message), context, session)
           )
+        } else if (node.type === 'javascriptCode') {
+          const code = String(node.data.code ?? '')
+          const maxOutputs = Math.min(5, Math.max(1, Number(node.data.outputCount ?? 1)))
+          const sandbox = {
+            context: {
+              author: context.author,
+              authorId: context.authorId,
+              content: context.content,
+              channel: context.channel,
+              messageId: context.messageId,
+              serverId: context.serverId,
+              args: context.args,
+              authorBot: context.authorBot
+            },
+            variables: Object.fromEntries(session.variables),
+            localVariables: Object.fromEntries(context.localVariables),
+            console: {
+              log: (...args: unknown[]) =>
+                this.log('info', `[JS Code] ${args.map(String).join(' ')}`),
+              warn: (...args: unknown[]) =>
+                this.log('warn', `[JS Code] ${args.map(String).join(' ')}`),
+              error: (...args: unknown[]) =>
+                this.log('error', `[JS Code] ${args.map(String).join(' ')}`)
+            },
+            args: context.args,
+            content: context.content,
+            author: context.author,
+            authorId: context.authorId,
+            channel: context.channel,
+            serverId: context.serverId
+          }
+
+          let result: unknown
+          try {
+            const fn = new Function(
+              'context',
+              'variables',
+              'localVariables',
+              'console',
+              'args',
+              'content',
+              'author',
+              'authorId',
+              'channel',
+              'serverId',
+              code
+            )
+            result = fn(
+              sandbox.context,
+              sandbox.variables,
+              sandbox.localVariables,
+              sandbox.console,
+              sandbox.args,
+              sandbox.content,
+              sandbox.author,
+              sandbox.authorId,
+              sandbox.channel,
+              sandbox.serverId
+            )
+          } catch (err: unknown) {
+            throw new Error(`JavaScript execution failed: ${errorMessage(err)}`, { cause: err })
+          }
+
+          if (
+            node.data.saveToVariable &&
+            typeof node.data.variableName === 'string' &&
+            node.data.variableName.trim()
+          ) {
+            const varName = node.data.variableName.trim()
+            const scope = node.data.variableScope === 'local' ? 'local' : 'global'
+            const valToSave =
+              result !== undefined
+                ? typeof result === 'object' && result !== null && 'value' in result
+                  ? (result as { value: unknown }).value
+                  : result
+                : ''
+            if (scope === 'local') {
+              context.localVariables.set(varName, valToSave)
+            } else {
+              session.variables.set(varName, String(valToSave))
+            }
+            this.log('info', `[JS Code] Saved result to ${varName} (${scope})`)
+          }
+
+          if (maxOutputs > 1) {
+            if (
+              typeof result === 'number' &&
+              Number.isInteger(result) &&
+              result >= 1 &&
+              result <= maxOutputs
+            ) {
+              handle = `out_${result}`
+            } else if (typeof result === 'string' && result.startsWith('out_')) {
+              handle = result
+            } else if (typeof result === 'object' && result !== null && 'output' in result) {
+              handle = `out_${(result as { output: unknown }).output}`
+            } else {
+              handle = 'out_1'
+            }
+          } else {
+            handle = 'out'
+          }
+          this.log('success', `[JS Code] Executed successfully (routing to ${handle})`)
         }
       } catch (error: unknown) {
         if (
@@ -909,11 +1195,23 @@ export class BotRunner {
         )
           throw error
         this.log('error', `[Node ${node.id}] ${errorMessage(error)}`)
-        // A failed action stops its branch, while other trigger branches can still run.
-        continue
+        const errorHandle = 'error'
+        const canRoute =
+          node.type !== 'catalog.tryCatch' &&
+          (session.outgoing.get(node.id) ?? []).some((edge) => edge.sourceHandle === errorHandle)
+        if (canRoute) {
+          context.localVariables.set('error', session.runtime!.redact(errorMessage(error)))
+          handle = errorHandle
+        } else {
+          if (strict) throw error
+          continue
+        }
       }
       for (const edge of [...(session.outgoing.get(node.id) ?? [])].reverse()) {
-        if ((edge.sourceHandle ?? 'out') === handle) stack.push(edge.target)
+        const edgeHandle = edge.sourceHandle ?? 'out'
+        if (edgeHandle === handle || (handle === 'out' && edgeHandle === 'out_1')) {
+          stack.push(edge.target)
+        }
       }
     }
   }

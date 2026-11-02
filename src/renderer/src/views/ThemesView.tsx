@@ -7,6 +7,7 @@ import {
   applyTheme,
   resetThemeToDefault
 } from '../themes'
+import { Icon } from '../components/Icon'
 
 interface ThemesViewProps {
   onThemeChanged?: (themeId: string) => void
@@ -73,7 +74,9 @@ export const ThemesView: React.FC<ThemesViewProps> = ({ onThemeChanged }) => {
       <div className="themes-header">
         <div className="themes-header-left">
           <div className="view-title-group">
-            <span className="view-icon">🎨</span>
+            <span className="view-icon">
+              <Icon name="Palette" />
+            </span>
             <div>
               <h1 className="view-heading">Visual Themes & Studio Styling</h1>
               <p className="view-subheading">
@@ -83,7 +86,11 @@ export const ThemesView: React.FC<ThemesViewProps> = ({ onThemeChanged }) => {
           </div>
         </div>
 
-        {saveMessage && <div className="theme-save-toast">✓ {saveMessage}</div>}
+        {saveMessage && (
+          <div className="theme-save-toast">
+            <Icon name="Check" /> {saveMessage}
+          </div>
+        )}
       </div>
 
       <div className="themes-content-scroll">
@@ -129,7 +136,7 @@ export const ThemesView: React.FC<ThemesViewProps> = ({ onThemeChanged }) => {
                         handleSelectPreset(theme)
                       }}
                     >
-                      {isSelected ? '✓ Currently Active' : 'Apply Theme'}
+                      {isSelected ? 'Currently Active' : 'Apply Theme'}
                     </button>
                   </div>
                 </div>
@@ -143,7 +150,7 @@ export const ThemesView: React.FC<ThemesViewProps> = ({ onThemeChanged }) => {
           <div className="section-title-row">
             <h2 className="themes-section-title">Custom Palette Overrides</h2>
             <button type="button" className="reset-theme-btn" onClick={handleReset}>
-              ↺ Reset to Defaults
+              <Icon name="RotateCcw" /> Reset to Defaults
             </button>
           </div>
 
@@ -233,7 +240,7 @@ export const ThemesView: React.FC<ThemesViewProps> = ({ onThemeChanged }) => {
 
             <div className="adjuster-footer">
               <button type="button" className="save-custom-btn" onClick={handleApplyCustomColors}>
-                💾 Save Custom Palette
+                <Icon name="Save" /> Save Custom Palette
               </button>
             </div>
           </div>

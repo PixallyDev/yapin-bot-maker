@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { COMMAND_PACKAGES, CommandPackage } from '../commandStore'
 import { PRESET_TEMPLATES, BotTemplate } from '../templates'
+import { Icon } from './Icon'
 
 interface CommandStoreViewProps {
   onAddPackage: (pkg: CommandPackage) => void
@@ -49,7 +50,9 @@ export const CommandStoreView: React.FC<CommandStoreViewProps> = ({
         </div>
 
         <div className="store-search-bar">
-          <span className="search-icon">🔍</span>
+          <span className="search-icon">
+            <Icon name="Search" />
+          </span>
           <input
             type="text"
             className="store-search-input"
@@ -59,7 +62,7 @@ export const CommandStoreView: React.FC<CommandStoreViewProps> = ({
           />
           {searchQuery && (
             <button type="button" className="search-clear-btn" onClick={() => setSearchQuery('')}>
-              ✕
+              <Icon name="X" />
             </button>
           )}
         </div>
@@ -78,28 +81,28 @@ export const CommandStoreView: React.FC<CommandStoreViewProps> = ({
           className={`category-pill ${activeCategory === 'utility' ? 'active' : ''}`}
           onClick={() => setActiveCategory('utility')}
         >
-          🛠️ Utility
+          <Icon name="Wrench" /> Utility
         </button>
         <button
           type="button"
           className={`category-pill ${activeCategory === 'moderation' ? 'active' : ''}`}
           onClick={() => setActiveCategory('moderation')}
         >
-          🛡️ Moderation
+          <Icon name="Shield" /> Moderation
         </button>
         <button
           type="button"
           className={`category-pill ${activeCategory === 'fun' ? 'active' : ''}`}
           onClick={() => setActiveCategory('fun')}
         >
-          🎲 Fun & Games
+          <Icon name="Dices" /> Fun & Games
         </button>
         <button
           type="button"
           className={`category-pill ${activeCategory === 'community' ? 'active' : ''}`}
           onClick={() => setActiveCategory('community')}
         >
-          👥 Community
+          <Icon name="Users" /> Community
         </button>
       </div>
 
@@ -109,7 +112,9 @@ export const CommandStoreView: React.FC<CommandStoreViewProps> = ({
           <section className="store-section">
             <div className="store-section-header">
               <div className="store-section-title-group">
-                <span className="section-icon">📦</span>
+                <span className="section-icon">
+                  <Icon name="Package" />
+                </span>
                 <div>
                   <h2 className="store-section-title">Pre-Built Bot Architectures</h2>
                   <p className="store-section-desc">
@@ -123,7 +128,9 @@ export const CommandStoreView: React.FC<CommandStoreViewProps> = ({
               {filteredTemplates.map((tmpl) => (
                 <div key={tmpl.id} className="store-template-card">
                   <div className="template-card-top">
-                    <span className="template-icon-large">{tmpl.icon}</span>
+                    <span className="template-icon-large">
+                      <Icon name={tmpl.icon} />
+                    </span>
                     <span className="template-badge-pill">{tmpl.tag}</span>
                   </div>
                   <h3 className="template-card-title">{tmpl.name}</h3>
@@ -153,7 +160,9 @@ export const CommandStoreView: React.FC<CommandStoreViewProps> = ({
         <section className="store-section">
           <div className="store-section-header">
             <div className="store-section-title-group">
-              <span className="section-icon">⚡</span>
+              <span className="section-icon">
+                <Icon name="Zap" />
+              </span>
               <div>
                 <h2 className="store-section-title">Modular Command Packages</h2>
                 <p className="store-section-desc">
@@ -165,7 +174,9 @@ export const CommandStoreView: React.FC<CommandStoreViewProps> = ({
 
           {filteredPackages.length === 0 ? (
             <div className="store-empty">
-              <span className="store-empty-icon">🔍</span>
+              <span className="store-empty-icon">
+                <Icon name="Search" />
+              </span>
               <p>No matching commands found for &quot;{searchQuery}&quot;.</p>
             </div>
           ) : (
@@ -174,7 +185,9 @@ export const CommandStoreView: React.FC<CommandStoreViewProps> = ({
                 <div key={pkg.id} className="command-card">
                   <div className="command-card-header">
                     <div className="command-icon-wrapper">
-                      <span>{pkg.icon}</span>
+                      <span>
+                        <Icon name={pkg.icon} />
+                      </span>
                     </div>
                     <div>
                       <h3 className="command-title">{pkg.name}</h3>

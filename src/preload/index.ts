@@ -6,7 +6,13 @@ const botApi: BotApi = {
   getTokenSettings: () => ipcRenderer.invoke('bot:get-token-settings'),
   setTokenSettings: (token, remember) =>
     ipcRenderer.invoke('bot:set-token-settings', token, remember),
-  exportStandalone: (graph) => ipcRenderer.invoke('bot:export-standalone', graph),
+  cancelYapinLogin: () => ipcRenderer.invoke('auth:cancel-yapin'),
+  loginWithYapin: () => ipcRenderer.invoke('auth:login-yapin'),
+  exportStandalone: (graph, liveDir) => ipcRenderer.invoke('bot:export-standalone', graph, liveDir),
+  getVariables: () => ipcRenderer.invoke('bot:get-variables'),
+  clearVariables: () => ipcRenderer.invoke('bot:clear-variables'),
+  setRunnerOptions: (options) => ipcRenderer.invoke('bot:set-options', options),
+  chooseFolder: (current) => ipcRenderer.invoke('app:choose-folder', current),
   startBot: (graph: BotGraph): Promise<{ success: boolean; message?: string }> => {
     return ipcRenderer.invoke('bot:start', graph)
   },
@@ -17,17 +23,20 @@ const botApi: BotApi = {
     return ipcRenderer.invoke('bot:get-status')
   },
   saveProject: (
-    data: BotGraph
+    data: BotGraph,
+    defaultDir?: string
   ): Promise<{ success: boolean; filePath?: string; error?: string }> => {
-    return ipcRenderer.invoke('bot:save-project', data)
+    return ipcRenderer.invoke('bot:save-project', data, defaultDir)
   },
-  loadProject: (): Promise<{
+  loadProject: (
+    defaultDir?: string
+  ): Promise<{
     success: boolean
     data?: BotGraph
     filePath?: string
     error?: string
   }> => {
-    return ipcRenderer.invoke('bot:load-project')
+    return ipcRenderer.invoke('bot:load-project', defaultDir)
   },
   onLog: (callback: (log: BotLog) => void): (() => void) => {
     const handler = (_event: IpcRendererEvent, log: BotLog): void => {

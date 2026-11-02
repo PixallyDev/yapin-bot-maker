@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Flow, Folder } from '../flows'
+import { Icon } from './Icon'
 interface Props {
   flows: Flow[]
   folders: Folder[]
@@ -56,7 +57,9 @@ export function FlowManager({
   )
   return (
     <div className="flow-bar">
-      <button onClick={() => setOpen(!open)}>Flows ▾</button>
+      <button onClick={() => setOpen(!open)}>
+        Flows <Icon name="ChevronDown" />
+      </button>
       {flows
         .filter((f) => f.isOpen)
         .map((f) => (
@@ -94,7 +97,8 @@ export function FlowManager({
                 }
                 style={{ color: folder.color }}
               >
-                {folder.isOpen ? '▾' : '▸'} {folder.name}
+                {folder.isOpen ? <Icon name="ChevronDown" /> : <Icon name="ChevronRight" />}{' '}
+                {folder.name}
               </button>
               {folder.isOpen &&
                 flows.filter((f) => f.folderId === folder.id && visible(f)).map(row)}

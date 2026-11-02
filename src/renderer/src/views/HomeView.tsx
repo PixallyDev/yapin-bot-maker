@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { BotProjectRecord, getSavedProjects } from '../projectManager'
 import { NavTabId } from '../components/Sidebar'
+import { Icon } from '../components/Icon'
 
 interface HomeViewProps {
   onNavigate: (tab: NavTabId) => void
@@ -32,7 +33,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
         <div className="hero-title-row">
           <div>
-            <h1 className="hero-main-title">Welcome back to Yapin Bot Maker</h1>
+            <h1 className="hero-main-title">Welcome back to Yapper Maker</h1>
             <p className="hero-subtitle-text">
               The professional visual node studio for creating, testing, and deploying custom bots
               for the Yapin platform.
@@ -48,7 +49,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
         {/* Quick Action Cards Grid */}
         <div className="quick-actions-grid">
           <button type="button" className="action-card primary-card" onClick={onNewProject}>
-            <div className="action-card-icon">➕</div>
+            <div className="action-card-icon">
+              <Icon name="Plus" />
+            </div>
             <div className="action-card-text">
               <span className="action-card-title">New Project</span>
               <span className="action-card-desc">Start a fresh visual flow from scratch</span>
@@ -57,7 +60,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </button>
 
           <button type="button" className="action-card" onClick={onOpenProjectFile}>
-            <div className="action-card-icon">📂</div>
+            <div className="action-card-icon">
+              <Icon name="FolderOpen" />
+            </div>
             <div className="action-card-text">
               <span className="action-card-title">Open Existing</span>
               <span className="action-card-desc">Load a saved .yapbot.json from disk</span>
@@ -66,7 +71,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </button>
 
           <button type="button" className="action-card" onClick={() => onNavigate('marketplace')}>
-            <div className="action-card-icon">🛒</div>
+            <div className="action-card-icon">
+              <Icon name="ShoppingCart" />
+            </div>
             <div className="action-card-text">
               <span className="action-card-title">Browse Marketplace</span>
               <span className="action-card-desc">Get pre-built commands, nodes & themes</span>
@@ -75,7 +82,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </button>
 
           <button type="button" className="action-card" onClick={onOpenTemplates}>
-            <div className="action-card-icon">✨</div>
+            <div className="action-card-icon">
+              <Icon name="Sparkles" />
+            </div>
             <div className="action-card-text">
               <span className="action-card-title">Starter Templates</span>
               <span className="action-card-desc">Ping & FAQ, Auto-Mod, or Fun bot</span>
@@ -91,7 +100,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <section className="home-main-section">
           <div className="section-header-row">
             <div className="section-title-group">
-              <span className="section-title-icon">📁</span>
+              <span className="section-title-icon">
+                <Icon name="Folder" />
+              </span>
               <h2 className="section-heading">Recent Projects</h2>
             </div>
             <button
@@ -106,7 +117,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
           <div className="recent-projects-list">
             {recentProjects.length === 0 ? (
               <div className="empty-projects-card">
-                <span>📁</span>
+                <span>
+                  <Icon name="Folder" />
+                </span>
                 <p>
                   No recent projects yet. Click &quot;New Project&quot; above to build your first
                   bot!
@@ -120,7 +133,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   onClick={() => onLoadProjectRecord(project)}
                 >
                   <div className="project-row-icon">
-                    <span>⚡</span>
+                    <span>
+                      <Icon name="Zap" />
+                    </span>
                   </div>
                   <div className="project-row-info">
                     <span className="project-row-name">{project.name}</span>
@@ -161,40 +176,52 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 rel="noreferrer"
                 className="community-link-item"
               >
-                <span className="link-icon">📖</span>
+                <span className="link-icon">
+                  <Icon name="BookOpen" />
+                </span>
                 <div className="link-text-group">
                   <span className="link-label">Yapin Bot API Docs</span>
                   <span className="link-sub">REST endpoint specifications</span>
                 </div>
-                <span className="link-arrow">↗</span>
+                <span className="link-arrow">
+                  <Icon name="ExternalLink" />
+                </span>
               </a>
 
               <a
-                href="https://discord.gg/yapin"
+                href="https://yapin.gg/invite/cQNDdPFZcW"
                 target="_blank"
                 rel="noreferrer"
                 className="community-link-item"
               >
-                <span className="link-icon">💬</span>
+                <span className="link-icon">
+                  <Icon name="MessageSquare" />
+                </span>
                 <div className="link-text-group">
-                  <span className="link-label">Developer Discord</span>
+                  <span className="link-label">Developer Yapin</span>
                   <span className="link-sub">Join bot makers & share node setups</span>
                 </div>
-                <span className="link-arrow">↗</span>
+                <span className="link-arrow">
+                  <Icon name="ExternalLink" />
+                </span>
               </a>
 
               <a
-                href="https://github.com/yapin/bot-maker"
+                href="https://github.com/yapin-bot-maker/yapin-bot-maker"
                 target="_blank"
                 rel="noreferrer"
                 className="community-link-item"
               >
-                <span className="link-icon">⭐</span>
+                <span className="link-icon">
+                  <Icon name="Star" />
+                </span>
                 <div className="link-text-group">
                   <span className="link-label">GitHub Repository</span>
-                  <span className="link-sub">Contribute or report issues</span>
+                  <span className="link-sub">Source code, docs & issues</span>
                 </div>
-                <span className="link-arrow">↗</span>
+                <span className="link-arrow">
+                  <Icon name="ExternalLink" />
+                </span>
               </a>
             </div>
           </div>
@@ -207,28 +234,36 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </div>
             <ul className="changelog-list">
               <li>
-                <span className="changelog-bullet">✨</span>
+                <span className="changelog-bullet">
+                  <Icon name="Sparkles" />
+                </span>
                 <span>
                   <strong>Multi-Tab Studio Suite:</strong> Discord-inspired left rail with Home,
-                  Projects, Marketplace, Themes & Plugins.
+                  Projects, Marketplace and Themes.
                 </span>
               </li>
               <li>
-                <span className="changelog-bullet">⚡</span>
+                <span className="changelog-bullet">
+                  <Icon name="Zap" />
+                </span>
                 <span>
                   <strong>13 Custom Flow Nodes:</strong> Dual-handle condition branching, session
                   variables, delay actions & rich cards.
                 </span>
               </li>
               <li>
-                <span className="changelog-bullet">🎨</span>
+                <span className="changelog-bullet">
+                  <Icon name="Palette" />
+                </span>
                 <span>
                   <strong>5 Built-in Themes:</strong> Dark, Neon Purple, Midnight OLED, Ice-Phoenix,
                   and GTA VI Vice City.
                 </span>
               </li>
               <li>
-                <span className="changelog-bullet">🔒</span>
+                <span className="changelog-bullet">
+                  <Icon name="Lock" />
+                </span>
                 <span>
                   <strong>Encrypted Token Storage:</strong> Zero plaintext token leaks with native
                   OS credential encryption.

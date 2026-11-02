@@ -3,19 +3,37 @@ import { Node, Edge } from '@xyflow/react'
 export interface OnMessageData extends Record<string, unknown> {
   label: string
   ignoreBots: boolean
+  userId?: string
+  channelId?: string
+  serverId?: string
+  saveToVariable?: boolean
+  variableName?: string
+  variableScope?: 'local' | 'global'
 }
 
 export interface OnCommandData extends Record<string, unknown> {
   label: string
   commandName: string
   description: string
+  prefix?: string
+  commandPrefix?: string
+  userId?: string
+  channelId?: string
+  serverId?: string
+  saveToVariable?: boolean
+  variableName?: string
+  variableScope?: 'local' | 'global'
 }
 
 export interface TextConditionData extends Record<string, unknown> {
   label: string
-  operator: 'contains' | 'equals' | 'starts_with' | 'ends_with'
+  comparisonType?: 'text' | 'number' | 'user_role' | 'variable'
+  operator: string
   value: string
-  caseSensitive: boolean
+  caseSensitive?: boolean
+  leftValue?: string
+  checkType?: 'username' | 'user_id' | 'is_bot'
+  varName?: string
 }
 
 export interface CheckUserRoleData extends Record<string, unknown> {
@@ -36,6 +54,7 @@ export interface SetVariableData extends Record<string, unknown> {
   varName: string
   value: string
   operation: 'set' | 'increment' | 'decrement'
+  scope?: 'local' | 'global'
 }
 
 export interface GetVariableData extends Record<string, unknown> {
@@ -81,7 +100,17 @@ export interface LogConsoleData extends Record<string, unknown> {
   level: 'info' | 'warn' | 'error' | 'success'
 }
 
+export interface JavascriptCodeData extends Record<string, unknown> {
+  label: string
+  code: string
+  outputCount?: number
+  saveToVariable?: boolean
+  variableName?: string
+  variableScope?: 'local' | 'global'
+}
+
 export type CustomNodeData =
+  | (Record<string, unknown> & { label: string })
   | OnMessageData
   | OnCommandData
   | TextConditionData
@@ -95,26 +124,14 @@ export type CustomNodeData =
   | WaitDelayData
   | ModerateMessageData
   | LogConsoleData
+  | JavascriptCodeData
 
 export type BotNode = Node<CustomNodeData>
 export type BotEdge = Edge
 
 export interface PaletteItem {
-  type:
-    | 'onMessage'
-    | 'onCommand'
-    | 'textCondition'
-    | 'checkUserRole'
-    | 'cooldownTimer'
-    | 'setVariable'
-    | 'getVariable'
-    | 'sendReply'
-    | 'sendRichMessage'
-    | 'randomReply'
-    | 'waitDelay'
-    | 'moderateMessage'
-    | 'logConsole'
-  category: 'trigger' | 'condition' | 'variable' | 'action'
+  type: string
+  category: string
   title: string
   description: string
   icon: string

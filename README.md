@@ -1,91 +1,174 @@
-# ybm
+# Yapper Maker
 
-An Electron application with React and TypeScript
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://yapin.gg)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+[![Yapin Community](https://img.shields.io/badge/community-Developer%20Yapin-indigo)](https://yapin.gg/invite/cQNDdPFZcW)
 
-## Recommended IDE Setup
+**Yapper Maker** is a desktop visual node-based bot studio for creating, testing, and running chatbots on the Yapin platform (reference: `YAPPER_DOCS.md`). Built with Electron, React 19, TypeScript, and `@xyflow/react`.
 
-- [VSCode](https://code.visualstudio.com/) + [ESLint](https://marketplace.visualstudio.com/items?itemName=dbaeumer.vscode-eslint) + [Prettier](https://marketplace.visualstudio.com/items?itemName=esbenp.prettier-vscode)
+---
 
-## Project Setup
+## 🌟 Key Features
 
-### Install
+- **Multi-Tab Studio Suite:**
+  - 🏠 **Home Dashboard:** Quick actions, recent projects, and community links.
+  - ⚡ **Flow Editor:** Full-featured `@xyflow/react` node canvas with grid, minimap, controls, and compact cards.
+  - 📁 **Projects Manager:** Organize, activate, duplicate, and export bot projects with custom icons and settings.
+  - 🛒 **Creator Marketplace:** Browse, download, rate, and publish community flows, templates, and studio themes.
+  - 🎨 **Theme Engine:** Built-in dark themes (Dark Studio, Neon Purple, Midnight OLED, Ice Phoenix, GTA VI).
+
+- **Visual Node Ecosystem:**
+  - **Triggers:** `On Command` (with slash command routing & filters), `On Message` (regex, keyword & bot author filtering).
+  - **Conditions:** `Text Condition` (dual output True/False handles with 8 operators), `Check User/Role` (admin & moderator checks), `Cooldown Timer` (user/channel rate limits).
+  - **Variables:** `Set Variable`, `Get Variable` (global, session, and user scoped memory), with inline `{var:...}` pill insertion.
+  - **Actions:** `Send Reply`, `Send Rich Message / Card`, `Random Reply` (picker), `Wait / Delay`, `Moderate Message` (delete, timeout, warn), `Log to Console`.
+
+- **Canvas Multi-Selection & Sharing:**
+  - **Ctrl + Left Click & Drag** lasso selection.
+  - **Floating Action Bar:** "+ Create group" and multi-option "Share" dropdown.
+  - **Share to Friend:** Deliver flow snippets straight to a creator's developer inbox with variables CSV.
+  - **Share to Support:** One-click diagnostic bundle submission.
+  - **Share to Marketplace:** Instant publishing with custom community tags.
+
+- **Developer Inbox & Notifications:**
+  - Marketplace ratings, installation tracking, shared flow imports, and platform update changelogs.
+
+---
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) v22.18 or higher (v24 recommended)
+- npm or pnpm
+
+### Installation
 
 ```bash
-$ npm install
+# Clone the repository
+git clone https://github.com/PixallyDev/yapin-bot-maker.git
+
+# Navigate into project directory
+cd yapin-bot-maker
+
+# Install dependencies
+npm install
 ```
 
-### Development
+### Running in Development
 
 ```bash
-$ npm run dev
+npm run dev
 ```
 
-### Build
+### Running Tests & Linting
 
 ```bash
-# For windows
-$ npm run build:win
+# Typecheck TypeScript
+npm run typecheck
 
-# For macOS
-$ npm run build:mac
+# Run ESLint
+npm run lint
 
-# For Linux
-$ npm run build:linux
+# Run Node test suite
+npm run test
 ```
 
-## Running a bot
+### Building for Production
 
-Paste a bot-account token (`yb_...`), connect an On Message or On Command trigger
-through conditions and actions, then click Start Bot. The main process authenticates
-at `/me`, replaces the registered slash commands with the graph's On Command nodes,
-and initializes `/events?after=0&wait=0` before listening for new events. Messages
-sent before startup are skipped. Stop Bot cancels polling, pending requests and
-retry waits. Changes to the canvas take effect the next time the bot starts.
+```bash
+# Production bundle
+npm run build
 
-Text conditions follow their true or false connection. Reply and console templates
-support `{author}`, `{content}` and `{channel}`. Replies quote the triggering
-message. Cyclic graphs and duplicate command names are rejected before startup.
-Failed actions stop their branch; other branches may continue. Writes with an
-ambiguous network failure are not retried, to avoid sending duplicate replies.
+# Windows Installer
+npm run build:win
+```
 
-Save and Load use native dialogs for versioned `.yapbot.json` files containing the
-node settings, positions and connections. Tokens are excluded from project files; legacy
-project tokens are ignored on load. Loading a file replaces the canvas;
-it does not replace an already running bot's graph.
+---
 
-Run `npm run typecheck` and `npm run test:main` to verify the main-process behavior.
-The tests use mocked API responses and Electron dialogs with real temporary project
-files; an authenticated end-to-end session requires your own Yapin bot token.
+## 🛡️ Architecture & Security
 
-## Reliability and credentials
+- **Strict Sandbox Isolation:** `src/renderer` communicates exclusively with the Electron main process via secure `contextBridge` (`window.botApi`).
+- **Encrypted Token Vault:** Bot tokens are encrypted locally with machine credentials and never committed to `.yapbot.json` project files.
+- **Cycle & Limit Protection:** Bot graph topologies are pre-validated before network polling to prevent infinite execution loops.
 
-Execution is capped at 50 connected node hops per incoming event, shared across
-matching triggers and branches. Remaining branches are skipped with a warning.
-Cyclic graphs are rejected before startup. After a connection drop, long polling
-resumes from the last event cursor with exponential delays of roughly 1, 2, 4, 8,
-16 and 30 seconds, with jitter. A successful poll resets the backoff. Longer API
-Retry-After values take precedence. Stop cancels requests and reconnect waits.
-Invalid authentication or polling permissions stop the bot instead of retrying forever.
+---
 
-Tokens stay in memory by default. Remember token on this PC explicitly enables
-Electron safeStorage encryption under the app's user data directory (Windows uses
-OS-backed protection). No plaintext fallback is allowed when encryption is
-unavailable. Clearing the checkbox removes the saved credential. Old localStorage
-credentials are removed on launch and kept only in the current session. Existing
-project files containing tokens must be resaved to remove them from disk.
+## 🤝 Community & Support
 
-## Standalone export
+- **Official Server:** [https://yapin.gg/invite/cQNDdPFZcW](https://yapin.gg/invite/cQNDdPFZcW)
+- **API Documentation:** [https://bots.yapper.website/api/bot/v1](https://bots.yapper.website/api/bot/v1)
 
-Click Export Standalone Bot and choose a folder. Each export creates a separate
-Yapin-Bot-* subfolder containing bot.js, package.json, .env.example, README.txt,
-Start-Bot.bat and a .gitignore for private .env files. It never overwrites existing
-exports or includes the studio token. Node settings containing a bot token must be
-cleared before saving or exporting.
+---
 
-Install Node.js 22 or newer, copy .env.example to .env, enter YAPPER_BOT_TOKEN, then
-double-click Start-Bot.bat or run node bot.js. No npm dependencies are required.
-The generated JavaScript includes the same runner as the studio, compiled during
-the app build, so it supports all current node types and reconnect behavior.
-Keep the host online for continuous operation. A process supervisor is needed for
-unattended restart after a machine reboot or process exit. Run only one instance
-per token. Variables and cooldowns are in memory and reset on process restart.
+## 📄 License
+
+MIT &copy; 2026 Yapper Maker Team
+
+## Yapin browser sign in
+
+Continue with Yapin opens the system browser and uses an IPv4 loopback callback:
+http://127.0.0.1:4189/yapin/callback
+Register this exact redirect URI on the Yapin OAuth application. The default
+client ID is 2012d842-7d7e-466c-aef3-d78c89d1016e. Development configuration is
+read from the project .env; packaged apps read .env from Electron's userData
+directory. Process environment variables take precedence. Neither file is bundled.
+
+Set YAPIN_CLIENT_ID to override the app ID. YAPIN_CLIENT_SECRET is optional for
+public desktop clients using PKCE; the replace_me placeholder is ignored. Never
+ship a confidential client secret in the installer. The flow uses identify only,
+exchanges the code at /api/oauth/token, then fetches /api/oauth/me. Alternate
+/oauth/token and /oauth/me paths are attempted only for HTTP 404 responses.
+Access tokens and the verifier remain in main-process memory during sign in;
+only the returned public profile is saved locally. No email or server roles are
+provided by the identify scope. The legacy email form cannot authenticate because
+no email/password endpoint is documented; use browser sign in instead.
+
+## Catalog runtime
+
+The desktop runner and standalone export execute enabled flows using the same
+backend. Switch cases select named output handles; loops run `each` for every
+item and then `done`. Loop bodies can use `{item}` and `{index}`. Try/Catch runs
+`try`, routes failures to `catch`, then continues through `next`. Named functions
+receive local parameters and return their local `return` or `result` variable.
+All branches, functions and loop bodies share the 50-node execution budget for
+an event. Variables can hold JSON objects, lists, numbers and booleans; math uses
+an arithmetic parser, and encryption uses authenticated AES-256-GCM.
+
+Saved projects store runtime files relative to their project folder. Unsaved
+projects use Electron userData; standalone bots use their export folder. Database
+nodes use JSON KV/table files (not SQLite), with serialized atomic writes and CSV
+import/export. File paths reject parent traversal, absolute paths and existing
+symlinks/junctions. Files, HTTP responses and expanded archives are limited to
+16 MB. Back up runtime data and avoid sharing private databases or ticket files.
+
+HTTP nodes support templated JSON headers/bodies, success/error branches and
+result extraction such as `$.results[0].id`. Redirects are rejected: use the final
+endpoint URL. AI nodes accept a key variable or environment settings.
+Environment fallbacks are `OPENAI_API_KEY`,
+`OPENAI_MODEL`, `GEMINI_API_KEY`, `GEMINI_MODEL` and `AI_SYSTEM_PROMPT`. Custom
+OpenAI-compatible endpoints can omit authentication. Configure the model and
+provider endpoint appropriate to your account. Weather uses the free
+[Open-Meteo forecast](https://open-meteo.com/en/docs) and
+[geocoding](https://open-meteo.com/en/docs/geocoding-api) services; definitions use
+the [Free Dictionary API](https://dictionaryapi.dev/).
+
+Social triggers establish a baseline on the first successful poll and emit only
+new entries afterward. YouTube accepts a channel ID or feed URL; RSS accepts an
+RSS/Atom URL. GitHub supports optional `GITHUB_TOKEN`; Reddit supports optional
+`REDDIT_ACCESS_TOKEN` and may require approved API access. Twitch requires
+`TWITCH_CLIENT_ID` and `TWITCH_ACCESS_TOKEN`. Webhook listeners bind to loopback
+and check their configured secret. Translation and URL shortening require a
+service URL. QR decoding accepts PNG images.
+
+Supported Yapin actions use the documented Bot API. Unavailable operations
+(typing, channel topics, threads, invites and bulk reaction clearing) log a
+`[Yapin API]` warning and follow their error output rather than calling invented
+endpoints. Undocumented gateway event types produce a startup warning. Ticket
+panels use interaction callbacks and private role-scoped channels; the bot needs
+Manage Roles/Manage Channels permissions. Configure staff role IDs on the panel.
+
+Standalone exports require Node.js 22+ and runtime dependencies. The Windows
+launcher installs dependencies on first use; on other hosts run
+`npm install --omit=dev` before starting. Put credentials in the private `.env`,
+using `.env.example` as a guide.
