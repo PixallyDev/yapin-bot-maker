@@ -7,6 +7,17 @@ export interface BotLog {
 }
 
 export interface BotGraph {
+  flows?: {
+    id: string
+    name: string
+    color: string
+    folderId?: string
+    isOpen: boolean
+    isDisabled: boolean
+    nodes: unknown[]
+    edges: unknown[]
+  }[]
+  folders?: import('../main/botRunner').BotGraphPayload['folders']
   token: string
   nodes: unknown[]
   edges: unknown[]

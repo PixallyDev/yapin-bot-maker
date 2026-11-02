@@ -4445,3 +4445,99 @@ body {
   font-size: 11px;
   color: #34d399;
 }
+.flow-bar {
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  position: relative;
+  z-index: 15;
+  background: #20232b;
+  flex-wrap: wrap;
+}
+.flow-bar button,
+.flow-menu button {
+  padding: 8px;
+  color: #eee;
+  background: #313541;
+  border: 1px solid #555;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.flow-bar button[aria-pressed='true'] {
+  background: #5865f2;
+}
+.studio-canvas-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+.studio-canvas-wrapper > .react-flow {
+  flex: 1;
+  min-height: 0;
+}
+.flows-popover,
+.flow-menu {
+  background: #20232b;
+  color: white;
+  padding: 12px;
+  border: 1px solid #666;
+  border-radius: 8px;
+  box-shadow: 0 10px 30px #0008;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 240px;
+  max-height: 70vh;
+  overflow: auto;
+}
+.flows-popover {
+  position: absolute;
+  top: 44px;
+  left: 8px;
+}
+.flow-menu {
+  position: fixed;
+  z-index: 100;
+}
+.flow-menu label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.flow-toast {
+  position: absolute;
+  right: 20px;
+  top: 70px;
+  z-index: 20;
+  background: #237746;
+  color: white;
+  padding: 12px;
+}
+.plugin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #0009;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+}
+.plugin-config-modal {
+  background: #242730;
+  color: white;
+  padding: 24px;
+  border-radius: 12px;
+  width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.plugin-config-modal label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.plugin-config-modal input {
+  padding: 10px;
+  background: #14161c;
+  color: white;
+  border: 1px solid #555;
+}

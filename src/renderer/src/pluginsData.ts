@@ -33,7 +33,7 @@ export const INITIAL_PLUGINS: BotPlugin[] = [
       'Enables interactive drag-and-drop live preview rendering for custom bot cards and buttons.',
     icon: '🎨',
     enabled: true,
-    hasSettings: false
+    hasSettings: true
   },
   {
     id: 'plugin-gateway-guard',
@@ -81,7 +81,7 @@ export const INITIAL_PLUGINS: BotPlugin[] = [
       'Replaces volatile in-memory session variables with durable local SQLite key-value persistence.',
     icon: '🗄️',
     enabled: true,
-    hasSettings: false
+    hasSettings: true
   }
 ]
 

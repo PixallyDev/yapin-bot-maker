@@ -20,6 +20,17 @@ export interface NodeGraphNode {
 }
 
 export interface BotGraphPayload {
+  flows?: {
+    id: string
+    name: string
+    folderId?: string
+    color: string
+    isOpen: boolean
+    isDisabled: boolean
+    nodes: NodeGraphNode[]
+    edges: NodeGraphEdge[]
+  }[]
+  folders?: { id: string; name: string; color: string; isOpen: boolean; isDisabled: boolean }[]
   token: string
   nodes: NodeGraphNode[]
   edges: NodeGraphEdge[]
@@ -46,6 +57,40 @@ export function validateGraph(value: unknown): asserts value is BotGraphPayload 
     (value.name !== undefined && typeof value.name !== 'string')
   ) {
     throw new Error('Project must contain a token string, nodes array and edges array.')
+  }
+  if (value.flows !== undefined) {
+    if (!Array.isArray(value.flows) || !Array.isArray(value.folders))
+      throw new Error('Invalid flows or folders.')
+    const ids = new Set<string>()
+    for (const folder of value.folders) {
+      if (
+        !isRecord(folder) ||
+        typeof folder.id !== 'string' ||
+        ids.has(folder.id) ||
+        typeof folder.name !== 'string' ||
+        typeof folder.color !== 'string' ||
+        typeof folder.isOpen !== 'boolean' ||
+        typeof folder.isDisabled !== 'boolean'
+      )
+        throw new Error('Invalid folder.')
+      ids.add(folder.id)
+    }
+    const flowIds = new Set<string>()
+    for (const flow of value.flows) {
+      if (
+        !isRecord(flow) ||
+        typeof flow.id !== 'string' ||
+        flowIds.has(flow.id) ||
+        typeof flow.name !== 'string' ||
+        typeof flow.color !== 'string' ||
+        typeof flow.isOpen !== 'boolean' ||
+        typeof flow.isDisabled !== 'boolean' ||
+        (flow.folderId !== undefined && !ids.has(String(flow.folderId)))
+      )
+        throw new Error('Invalid flow.')
+      flowIds.add(flow.id)
+      validateGraph({ token: '', nodes: flow.nodes, edges: flow.edges })
+    }
   }
   const nodes = new Map<string, Record<string, unknown>>()
   for (const node of value.nodes) {
@@ -274,6 +319,24 @@ export function compileGraph(input: unknown): {
 } {
   validateGraph(input)
   const graph = structuredClone(input)
+  if (graph.flows) {
+    const enabled = graph.flows.filter(
+      (f) =>
+        !f.isDisabled &&
+        !graph.folders?.some((folder) => folder.id === f.folderId && folder.isDisabled)
+    )
+    graph.nodes = enabled.flatMap((f) =>
+      f.nodes.map((n) => ({ ...n, id: JSON.stringify([f.id, n.id]) }))
+    )
+    graph.edges = enabled.flatMap((f) =>
+      f.edges.map((e) => ({
+        ...e,
+        id: JSON.stringify([f.id, e.id]),
+        source: JSON.stringify([f.id, e.source]),
+        target: JSON.stringify([f.id, e.target])
+      }))
+    )
+  }
   graph.token = graph.token.trim()
   const outgoing = new Map<string, NodeGraphEdge[]>()
   const indegree = new Map(graph.nodes.map((node) => [node.id, 0]))

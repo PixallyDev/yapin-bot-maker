@@ -741,3 +741,54 @@ test('long server Retry-After takes precedence over exponential delay and is can
     global.setTimeout = originalTimeout
   }
 })
+
+test('multi-flow projects namespace IDs, skip disabled flows and folders, and preserve project metadata', async () => {
+  const { compileGraph } = require('../src/main/botRunner.ts')
+  const { publicGraph } = require('../src/main/projectFiles.ts')
+  const folder = {
+    id: 'folder',
+    name: 'Disabled',
+    color: '#ff0000',
+    isOpen: false,
+    isDisabled: true
+  }
+  const flow = (id, isDisabled = false, folderId) => ({
+    id,
+    name: id,
+    color: '#5865f2',
+    isOpen: true,
+    isDisabled,
+    folderId,
+    nodes: [trigger(), node('log', 'logConsole', { message: id, level: 'info' })],
+    edges: [edge('trigger', 'log')]
+  })
+  const input = {
+    ...graph([]),
+    flows: [flow('one'), flow('two'), flow('off', true), flow('folder-off', false, 'folder')],
+    folders: [folder]
+  }
+  const compiled = compileGraph(input)
+  assert.equal(compiled.graph.nodes.length, 4)
+  assert.equal(new Set(compiled.graph.nodes.map((n) => n.id)).size, 4)
+  const restored = parseProject({ version: '1.0.0', graph: publicGraph(input) })
+  assert.deepEqual(restored.flows, input.flows)
+  api([message(11, 'hello')])
+  const { instance, logs } = runner()
+  assert.equal((await instance.start(input)).success, true)
+  await until(() => logs.some((l) => l.message === 'two'))
+  assert.ok(!logs.some((l) => l.message === 'off' || l.message === 'folder-off'))
+})
+
+test('every marketplace graph validates and installation assigns fresh IDs preserving handles', () => {
+  const { MARKETPLACE_ITEMS } = require('../src/renderer/src/marketplaceData.ts')
+  const { newFlow } = require('../src/renderer/src/flows.ts')
+  for (const item of MARKETPLACE_ITEMS.filter((i) => i.type !== 'theme')) {
+    assert.ok(item.nodes?.length, item.name)
+    const first = newFlow(item.name, item.nodes, item.edges)
+    const second = newFlow(item.name, item.nodes, item.edges)
+    assert.ok(first.nodes.every((n) => !second.nodes.some((m) => m.id === n.id)))
+    assert.equal(first.edges.length, item.edges.length)
+    for (let i = 0; i < first.edges.length; i++)
+      assert.equal(first.edges[i].sourceHandle, item.edges[i].sourceHandle)
+  }
+})

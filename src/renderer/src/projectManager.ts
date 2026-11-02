@@ -2,6 +2,8 @@ import { BotNode, BotEdge } from './types'
 import { PRESET_TEMPLATES } from './templates'
 
 export interface BotProjectRecord {
+  flows?: import('./flows').Flow[]
+  folders?: import('./flows').Folder[]
   id: string
   name: string
   description: string

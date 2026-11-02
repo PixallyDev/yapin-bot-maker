@@ -21,7 +21,7 @@ export interface MarketplaceItem {
   commandName?: string
 }
 
-export const MARKETPLACE_ITEMS: MarketplaceItem[] = [
+const ITEMS: MarketplaceItem[] = [
   // --- TEMPLATES ---
   {
     id: 'market-tmpl-1',
@@ -83,8 +83,7 @@ export const MARKETPLACE_ITEMS: MarketplaceItem[] = [
     version: '1.0.8',
     downloads: '6.4k',
     rating: 4.9,
-    description:
-      'Welcomes new members with branded greeting cards, rules prompt, and automated role assignment.',
+    description: 'Provides a /welcome command with a greeting and server rules reminder.',
     tags: ['welcome', 'onboarding', 'roles'],
     icon: '👋',
     nodeCount: 5
@@ -99,7 +98,7 @@ export const MARKETPLACE_ITEMS: MarketplaceItem[] = [
     downloads: '5.1k',
     rating: 4.6,
     description:
-      'Handles support requests via /ticket, checks requester role, and creates private response notifications.',
+      'Acknowledges /ticket requests in the current channel with the supplied support details.',
     tags: ['tickets', 'support', 'workflow'],
     icon: '🎫',
     nodeCount: 6
@@ -198,8 +197,7 @@ export const MARKETPLACE_ITEMS: MarketplaceItem[] = [
     version: '1.1.0',
     downloads: '4.8k',
     rating: 4.7,
-    description:
-      'Enables /daily and /balance commands with session variable persistence and rich bank receipts.',
+    description: 'Provides a /balance reply using the current session balance variable.',
     tags: ['economy', 'coins', 'bank'],
     icon: '💰',
     commandName: '/balance',
@@ -268,3 +266,50 @@ export const MARKETPLACE_ITEMS: MarketplaceItem[] = [
     themeId: 'gta-vi'
   }
 ]
+
+export const MARKETPLACE_ITEMS: MarketplaceItem[] = ITEMS.map((item) => {
+  if (item.type === 'theme') return item
+  const nodes =
+    item.nodes ??
+    ([
+      {
+        id: 'trigger',
+        type: 'onCommand',
+        position: { x: 80, y: 100 },
+        data: {
+          label: 'On Command',
+          commandName: item.id.includes('bank')
+            ? 'balance'
+            : item.id.includes('ticket')
+              ? 'ticket'
+              : 'welcome',
+          description: 'Show community information'
+        }
+      },
+      {
+        id: 'reply',
+        type: 'sendReply',
+        position: { x: 420, y: 100 },
+        data: {
+          label: 'Reply',
+          message: item.id.includes('bank')
+            ? 'Your session balance is {var:balance}'
+            : item.id.includes('ticket')
+              ? 'Support request received: {args}'
+              : 'Welcome {user}! Please read the server rules.'
+        }
+      }
+    ] as BotNode[])
+  const edges =
+    item.edges ??
+    nodes.slice(0, -1).map((n, i) => ({
+      id: `edge-${i}`,
+      source: n.id,
+      target: nodes[i + 1].id,
+      sourceHandle: ['textCondition', 'checkUserRole', 'cooldownTimer'].includes(String(n.type))
+        ? 'true'
+        : 'out',
+      targetHandle: 'in'
+    }))
+  return { ...item, nodes, edges, nodeCount: nodes.length }
+})

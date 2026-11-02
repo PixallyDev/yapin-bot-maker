@@ -1,7 +1,9 @@
+import { PluginConfigModal } from '../components/PluginConfigModal'
 import React, { useState } from 'react'
 import { BotPlugin, getPluginsList, togglePluginState } from '../pluginsData'
 
 export const PluginsView: React.FC = () => {
+  const [configPlugin, setConfigPlugin] = useState<BotPlugin | null>(null)
   const [plugins, setPlugins] = useState<BotPlugin[]>(() => getPluginsList())
   const [searchQuery, setSearchQuery] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string>('all')
@@ -30,6 +32,13 @@ export const PluginsView: React.FC = () => {
 
   return (
     <div className="plugins-view-container">
+      {configPlugin && (
+        <PluginConfigModal
+          key={configPlugin.id}
+          plugin={configPlugin}
+          onClose={() => setConfigPlugin(null)}
+        />
+      )}
       {/* Header */}
       <div className="plugins-header">
         <div className="plugins-header-left">
@@ -136,11 +145,7 @@ export const PluginsView: React.FC = () => {
                   <button
                     type="button"
                     className="plugin-settings-btn"
-                    onClick={() =>
-                      alert(
-                        `Settings for ${plugin.name} are managed automatically via graph configuration.`
-                      )
-                    }
+                    onClick={() => setConfigPlugin(plugin)}
                   >
                     ⚙️ Configure
                   </button>

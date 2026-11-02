@@ -1,3 +1,5 @@
+import { FlowManager } from './components/FlowManager'
+import { Flow, Folder, newFlow, defaultFolders } from './flows'
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   ReactFlow,
@@ -46,8 +48,17 @@ const INITIAL_NODES: BotNode[] = PRESET_TEMPLATES[0].nodes
 const INITIAL_EDGES: BotEdge[] = PRESET_TEMPLATES[0].edges
 
 function StudioCanvas(): React.JSX.Element {
-  const [nodes, setNodes, onNodesChange] = useNodesState<BotNode>(INITIAL_NODES)
-  const [edges, setEdges, onEdgesChange] = useEdgesState<BotEdge>(INITIAL_EDGES)
+  const [initialProject] = useState(() => getSavedProjects()[0])
+  const [nodes, setNodes, onNodesChange] = useNodesState<BotNode>(
+    initialProject?.flows
+      ? (initialProject.flows.find((f) => f.isOpen)?.nodes ?? [])
+      : (initialProject?.nodes ?? INITIAL_NODES)
+  )
+  const [edges, setEdges, onEdgesChange] = useEdgesState<BotEdge>(
+    initialProject?.flows
+      ? (initialProject.flows.find((f) => f.isOpen)?.edges ?? [])
+      : (initialProject?.edges ?? INITIAL_EDGES)
+  )
   const [logs, setLogs] = useState<BotLog[]>([
     {
       timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
@@ -86,6 +97,46 @@ function StudioCanvas(): React.JSX.Element {
     )
   })
 
+  const [flows, setFlows] = useState<Flow[]>(
+    () => activeProject.flows ?? [newFlow('Main', activeProject.nodes, activeProject.edges)]
+  )
+  const [folders, setFolders] = useState<Folder[]>(activeProject.folders ?? defaultFolders)
+  const [flowId, setFlowId] = useState(() => flows.find((f) => f.isOpen)?.id ?? '')
+  const [toast, setToast] = useState('')
+  const liveFlows = flows.map((f) => (f.id === flowId ? { ...f, nodes, edges } : f))
+  const projectPayload = {
+    token,
+    name: activeProject.name,
+    nodes,
+    edges,
+    flows: liveFlows,
+    folders
+  }
+  const switchFlow = (id: string, list = liveFlows): void => {
+    const next = list.find((f) => f.id === id)
+    setFlows(list.map((f) => (f.id === id ? { ...f, isOpen: true } : f)))
+    setFlowId(id)
+    setNodes(next?.nodes ?? [])
+    setEdges(next?.edges ?? [])
+    setSelectedNodeId(null)
+  }
+  const addFlow = (name = 'Untitled flow', n: BotNode[] = [], e: BotEdge[] = []): void => {
+    const flow = newFlow(name, n, e)
+    const folder = folders.find((f) => !f.isDisabled)
+    flow.folderId = folder?.id
+    switchFlow(flow.id, [...liveFlows, flow])
+    setActiveTab('canvas')
+  }
+  const restoreFlows = (project: {
+    flows?: Flow[]
+    folders?: Folder[]
+    nodes: BotNode[]
+    edges: BotEdge[]
+  }): void => {
+    const list = project.flows ?? [newFlow('Main', project.nodes, project.edges)]
+    setFolders(project.folders ?? defaultFolders)
+    switchFlow(list.find((f) => f.isOpen)?.id ?? list[0]?.id ?? '', list)
+  }
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [isTemplatesOpen, setIsTemplatesOpen] = useState(false)
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false)
@@ -187,7 +238,7 @@ function StudioCanvas(): React.JSX.Element {
     if (typeof window === 'undefined' || !window.botApi || isExporting) return
     setIsExporting(true)
     try {
-      const result = await window.botApi.exportStandalone({ token, nodes, edges })
+      const result = await window.botApi.exportStandalone(projectPayload)
       if (result.error) reportError(result.error)
     } catch {
       reportError('Standalone export failed.')
@@ -230,10 +281,7 @@ function StudioCanvas(): React.JSX.Element {
 
   // Start / Stop Bot
   const handleToggleBot = async (): Promise<void> => {
-    if (!window.botApi) {
-      alert('Bot API unavailable. Please launch inside Yapin Bot Maker desktop app.')
-      return
-    }
+    if (typeof window === 'undefined' || !window.botApi) return
 
     if (isRunning) {
       setLogs((prev) => [
@@ -266,11 +314,7 @@ function StudioCanvas(): React.JSX.Element {
       ])
 
       try {
-        const res = await window.botApi.startBot({
-          token: token.trim(),
-          nodes,
-          edges
-        })
+        const res = await window.botApi.startBot(projectPayload)
 
         if (!res.success) {
           setIsStarting(false)
@@ -285,16 +329,14 @@ function StudioCanvas(): React.JSX.Element {
 
   // Save Project to Disk
   const handleSaveProject = async (): Promise<void> => {
-    if (!window.botApi) return
+    if (typeof window === 'undefined' || !window.botApi) return
     try {
-      const res = await window.botApi.saveProject({
-        token: token.trim(),
-        nodes,
-        edges
-      })
+      const res = await window.botApi.saveProject(projectPayload)
       if (res.success && res.filePath) {
         const updatedProj: BotProjectRecord = {
           ...activeProject,
+          flows: liveFlows,
+          folders,
           filePath: res.filePath,
           nodeCount: nodes.length,
           edgeCount: edges.length,
@@ -323,7 +365,7 @@ function StudioCanvas(): React.JSX.Element {
 
   // Load Project from Disk
   const handleLoadProject = async (): Promise<void> => {
-    if (!window.botApi) return
+    if (typeof window === 'undefined' || !window.botApi) return
     try {
       const res = await window.botApi.loadProject()
       if (res.success && res.data) {
@@ -349,6 +391,9 @@ function StudioCanvas(): React.JSX.Element {
           edges: (res.data.edges as BotEdge[]) || [],
           lastModified: Date.now()
         }
+        loadedProj.flows = res.data.flows as Flow[] | undefined
+        loadedProj.folders = res.data.folders as Folder[] | undefined
+        restoreFlows(loadedProj)
         setActiveProject(loadedProj)
         saveProjectRecord(loadedProj)
         setSelectedNodeId(null)
@@ -388,8 +433,7 @@ function StudioCanvas(): React.JSX.Element {
   // Switch to specific project from Home or ProjectsView
   const handleOpenProjectRecord = (project: BotProjectRecord): void => {
     setActiveProject(project)
-    setNodes(project.nodes)
-    setEdges(project.edges)
+    restoreFlows(project)
     setSelectedNodeId(null)
     setActiveTab('canvas')
     setTimeout(() => fitView({ padding: 0.2 }), 80)
@@ -410,41 +454,21 @@ function StudioCanvas(): React.JSX.Element {
 
   // Select pre-built template
   const handleSelectTemplate = (template: BotTemplate): void => {
-    setNodes(template.nodes)
-    setEdges(template.edges)
-    setSelectedNodeId(null)
-    const newProj: BotProjectRecord = {
-      id: `proj-${Date.now().toString(36)}`,
-      name: template.name,
-      description: template.description,
-      nodeCount: template.nodes.length,
-      edgeCount: template.edges.length,
-      nodes: template.nodes,
-      edges: template.edges,
-      lastModified: Date.now()
-    }
-    setActiveProject(newProj)
-    saveProjectRecord(newProj)
-    setActiveTab('canvas')
-    setTimeout(() => fitView({ padding: 0.2 }), 80)
-    setLogs((prev) => [
-      ...prev,
-      {
-        timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-        level: 'success',
-        message: `Loaded template: "${template.name}".`
-      }
-    ])
+    addFlow(template.name, template.nodes, template.edges)
   }
 
   // Add node from Palette
   const handleAddNode = (item: PaletteItem): void => {
-    const newId = `${item.type}-${Date.now().toString(36)}`
+    const newId = crypto.randomUUID()
     const newNode: BotNode = {
       id: newId,
       type: item.type,
       position: { x: 300 + Math.random() * 80, y: 150 + Math.random() * 80 },
       data: { ...item.defaultData }
+    }
+    if (!flowId) {
+      addFlow('Untitled flow', [newNode])
+      return
     }
     setNodes((nds) => [...nds, newNode])
     setSelectedNodeId(newId)
@@ -459,7 +483,7 @@ function StudioCanvas(): React.JSX.Element {
   const onDrop = useCallback(
     (event: React.DragEvent) => {
       event.preventDefault()
-      const raw = event.dataTransfer.getData('application/reactflow')
+      const raw = event.dataTransfer.getData('application/yapin-node')
       if (!raw) return
 
       try {
@@ -469,7 +493,7 @@ function StudioCanvas(): React.JSX.Element {
           y: event.clientY
         })
 
-        const newId = `${item.type}-${Date.now().toString(36)}`
+        const newId = crypto.randomUUID()
         const newNode: BotNode = {
           id: newId,
           type: item.type,
@@ -526,71 +550,24 @@ function StudioCanvas(): React.JSX.Element {
 
   // Install marketplace item
   const handleInstallMarketplaceItem = (item: MarketplaceItem): void => {
-    if (item.type === 'template' && item.nodes) {
-      setNodes(item.nodes)
-      setEdges(item.edges || [])
-      setSelectedNodeId(null)
-      const newProj: BotProjectRecord = {
-        id: `proj-${Date.now().toString(36)}`,
-        name: item.name,
-        description: item.description,
-        nodeCount: item.nodes.length,
-        edgeCount: item.edges?.length || 0,
-        nodes: item.nodes,
-        edges: item.edges || [],
-        lastModified: Date.now()
-      }
-      setActiveProject(newProj)
-      saveProjectRecord(newProj)
-      setActiveTab('canvas')
-      setTimeout(() => fitView({ padding: 0.2 }), 80)
-      setLogs((prev) => [
-        ...prev.slice(-499),
-        {
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-          level: 'success',
-          message: `Installed template "${item.name}" from Marketplace.`
-        }
-      ])
-    } else if (item.nodes && item.nodes.length > 0) {
-      const maxY = nodes.reduce((max, n) => Math.max(max, n.position.y), 0)
-      const startY = maxY > 0 ? maxY + 160 : 100
-      const originY = item.nodes[0].position.y
-      const adjustedNodes: BotNode[] = item.nodes.map((n, idx) => ({
-        ...n,
-        id: `${n.type}-${Date.now().toString(36)}-${idx}`,
-        position: { x: n.position.x, y: startY + (n.position.y - originY) }
-      }))
-
-      const newEdges: BotEdge[] = []
-      for (let i = 0; i < adjustedNodes.length - 1; i++) {
-        const src = adjustedNodes[i]
-        const tgt = adjustedNodes[i + 1]
-        const isCond =
-          src.type === 'textCondition' ||
-          src.type === 'checkUserRole' ||
-          src.type === 'cooldownTimer'
-        newEdges.push({
-          id: `e-${src.id}-${tgt.id}`,
-          source: src.id,
-          target: tgt.id,
-          sourceHandle: isCond ? 'true' : 'out',
+    try {
+      if (!item.nodes?.length) throw new Error('This item has no installable nodes.')
+      const itemEdges =
+        item.edges ??
+        item.nodes.slice(0, -1).map((n, i) => ({
+          id: crypto.randomUUID(),
+          source: n.id,
+          target: item.nodes![i + 1].id,
+          sourceHandle: ['textCondition', 'checkUserRole', 'cooldownTimer'].includes(String(n.type))
+            ? 'true'
+            : 'out',
           targetHandle: 'in'
-        })
-      }
-
-      setNodes((nds) => [...nds, ...adjustedNodes])
-      setEdges((eds) => [...eds, ...newEdges])
-      setActiveTab('canvas')
-      setTimeout(() => fitView({ padding: 0.2 }), 80)
-      setLogs((prev) => [
-        ...prev.slice(-499),
-        {
-          timestamp: new Date().toLocaleTimeString('en-US', { hour12: false }),
-          level: 'success',
-          message: `Installed community package "${item.name}" (${adjustedNodes.length} nodes) onto canvas.`
-        }
-      ])
+        }))
+      addFlow(item.name, item.nodes, itemEdges)
+      setToast(`Installed ${item.name}`)
+      setTimeout(() => setToast(''), 3500)
+    } catch (error) {
+      reportError(error instanceof Error ? error.message : 'Invalid marketplace item')
     }
   }
 
@@ -642,6 +619,24 @@ function StudioCanvas(): React.JSX.Element {
               <NodePalette onAddNode={handleAddNode} />
 
               <div className="studio-canvas-wrapper" ref={reactFlowWrapper}>
+                <FlowManager
+                  flows={liveFlows}
+                  folders={folders}
+                  active={flowId}
+                  select={(id) => switchFlow(id)}
+                  create={() => addFlow()}
+                  change={(list, groups) => {
+                    setFolders(groups)
+                    const next =
+                      list.find((f) => f.id === flowId && f.isOpen) ?? list.find((f) => f.isOpen)
+                    switchFlow(next?.id ?? '', list)
+                  }}
+                />
+                {toast && (
+                  <div className="flow-toast" role="status">
+                    {toast}
+                  </div>
+                )}
                 <ReactFlow
                   nodes={nodes}
                   edges={edges}
@@ -665,6 +660,8 @@ function StudioCanvas(): React.JSX.Element {
                   />
                   <Controls showInteractive={false} />
                   <MiniMap
+                    pannable
+                    zoomable
                     nodeColor={(node) => {
                       if (node.type === 'onMessage' || node.type === 'onCommand') return '#a855f7'
                       if (
@@ -701,7 +698,18 @@ function StudioCanvas(): React.JSX.Element {
             onImportFromFile={handleLoadProject}
             onExportStandalone={(proj) => {
               handleOpenProjectRecord(proj)
-              void handleExportStandalone()
+              if (window.botApi)
+                void window.botApi
+                  .exportStandalone({
+                    token,
+                    nodes: proj.nodes,
+                    edges: proj.edges,
+                    flows: proj.flows,
+                    folders: proj.folders
+                  })
+                  .then((r) => {
+                    if (r.error) reportError(r.error)
+                  })
             }}
           />
         )}

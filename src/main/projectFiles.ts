@@ -14,7 +14,13 @@ export function parseProject(value: unknown): BotGraphPayload {
   }
   const source = value.graph === undefined ? value : value.graph
   if (!isRecord(source)) throw new Error('Project graph must be an object.')
-  const graph: unknown = { token: '', name: value.name, nodes: source.nodes, edges: source.edges }
+  const graph: unknown = {
+    token: '',
+    name: value.name,
+    nodes: source.nodes,
+    edges: source.edges,
+    ...(source.flows ? { flows: source.flows, folders: source.folders } : {})
+  }
   validateGraph(graph)
   return graph
 }
@@ -23,9 +29,15 @@ export function parseProject(value: unknown): BotGraphPayload {
 export function publicGraph(input: unknown): {
   nodes: BotGraphPayload['nodes']
   edges: BotGraphPayload['edges']
+  flows?: BotGraphPayload['flows']
+  folders?: BotGraphPayload['folders']
 } {
   validateGraph(input)
-  const result = { nodes: input.nodes, edges: input.edges }
+  const result = {
+    nodes: input.nodes,
+    edges: input.edges,
+    ...(input.flows ? { flows: input.flows, folders: input.folders } : {})
+  }
   const text = JSON.stringify({ ...result, name: input.name })
   if (
     (input.token.trim() && text.includes(input.token.trim())) ||
