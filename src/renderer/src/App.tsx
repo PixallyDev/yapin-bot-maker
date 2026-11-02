@@ -198,7 +198,7 @@ function StudioCanvas(): React.JSX.Element {
         }
         const res = await window.botApi.startBot(payload)
         if (res.success) {
-          setIsRunning(true)
+          setIsRunning((await window.botApi.getBotStatus()).running)
         } else {
           setLogs((prev) => [
             ...prev,
@@ -250,9 +250,7 @@ function StudioCanvas(): React.JSX.Element {
     if (!window.botApi) return
     const res = await window.botApi.loadProject()
     if (res.success && res.data) {
-      if (res.data.token) {
-        handleTokenChange(res.data.token)
-      }
+      handleTokenChange(res.data.token)
       if (res.data.nodes) {
         setNodes(res.data.nodes as BotNode[])
       }
