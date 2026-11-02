@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { BotProjectRecord, getSavedProjects } from '../projectManager'
 import { NavTabId } from '../components/Sidebar'
 import { Icon } from '../components/Icon'
+import { GITHUB_REPOSITORY } from '../../../shared/appLinks'
 
 interface HomeViewProps {
   onNavigate: (tab: NavTabId) => void
@@ -28,7 +29,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
       <section className="home-hero-banner">
         <div className="hero-welcome-badge">
           <span className="badge-pulse-dot" />
-          <span>YAPIN BOT MAKER STUDIO SUITE v1.0</span>
+          <span>YAPPER MAKER STUDIO SUITE v1.0</span>
         </div>
 
         <div className="hero-title-row">
@@ -207,7 +208,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               </a>
 
               <a
-                href="https://github.com/yapin-bot-maker/yapin-bot-maker"
+                href={GITHUB_REPOSITORY}
                 target="_blank"
                 rel="noreferrer"
                 className="community-link-item"

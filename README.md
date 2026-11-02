@@ -126,6 +126,15 @@ no email/password endpoint is documented; use browser sign in instead.
 
 ## Catalog runtime
 
+Installed builds check the public GitHub repository once at startup for commits
+newer than their embedded source revision. A native update popup offers the
+[GitHub repository](https://github.com/PixallyDev/yapin-bot-maker) and
+[itch.io downloads](https://reflex-dev.itch.io/yapper-maker), plus Later.
+Offline and rate-limit failures are silent. Downloads and installation remain
+manual; repository changes may precede a downloadable release. Development runs
+do not show update prompts. Builds need Git history or a `YAPPER_BUILD_COMMIT`
+(or `GITHUB_SHA`) environment variable to identify their source revision.
+
 The desktop runner and standalone export execute enabled flows using the same
 backend. Switch cases select named output handles; loops run `each` for every
 item and then `done`. Loop bodies can use `{item}` and `{index}`. Try/Catch runs

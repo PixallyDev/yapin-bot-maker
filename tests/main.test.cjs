@@ -928,6 +928,7 @@ Module._load = function (id, ...args) {
 const { BotRunner, reconnectDelay } = require('../src/main/botRunner.ts')
 const { saveProject, loadProject, parseProject } = require('../src/main/projectFiles.ts')
 const { TokenStore } = require('../src/main/tokenStore.ts')
+const { checkForUpdate, showStartupUpdate } = require('../src/main/updateChecker.ts')
 const { standaloneFiles, exportStandalone } = require('../src/main/standaloneExport.ts')
 const {
   startOAuthLoopback,
@@ -2025,4 +2026,82 @@ test('marketplace review submissions preserve aggregate counts and replace only 
   assert.equal(updated.ratingTotal, first.ratingTotal + 1)
   assert.equal(item.reviewsCount, 112)
   assert.equal(item.reviews.length, 3)
+})
+
+test('startup updates compare installed and default-branch commits, including unchanged version numbers', async () => {
+  const installed = 'a'.repeat(40),
+    latest = 'b'.repeat(40)
+  let calls = [],
+    status = 'ahead'
+  global.fetch = async (url, options) => {
+    calls.push(String(url))
+    assert.ok(options.signal instanceof AbortSignal)
+    assert.equal(options.headers.Authorization, undefined)
+    return String(url).includes('/compare/')
+      ? json({ status })
+      : json([{ sha: latest, commit: { message: 'Improved editor\nLong details' } }])
+  }
+  assert.deepEqual(await checkForUpdate(installed), {
+    revision: latest,
+    summary: 'Improved editor'
+  })
+  assert.ok(calls[0].endsWith('/commits?per_page=1'))
+  assert.ok(calls[1].includes(`/compare/${installed}...${latest}`))
+  status = 'behind'
+  assert.equal(await checkForUpdate(installed), null)
+  status = 'diverged'
+  assert.ok(await checkForUpdate(installed))
+  calls = []
+  assert.equal(await checkForUpdate(latest), null)
+  assert.equal(calls.length, 1)
+  calls = []
+  assert.equal(await checkForUpdate(''), null)
+  assert.equal(calls.length, 0)
+})
+
+test('startup update check tolerates offline, rate limits and malformed API responses', async () => {
+  for (const response of [
+    () => {
+      throw Error('Offline')
+    },
+    () => json({}, 403),
+    () => json([{ sha: 'not-a-commit' }]),
+    () => json({}),
+    () => json('invalid compare')
+  ]) {
+    global.fetch = async () => response()
+    assert.equal(await checkForUpdate('a'.repeat(40)), null)
+  }
+})
+
+test('startup popup offers fixed GitHub and itch.io links, dismissal and destroyed-window handling', async () => {
+  global.fetch = async (url) =>
+    String(url).includes('/compare/')
+      ? json({ status: 'ahead' })
+      : json([{ sha: 'b'.repeat(40), commit: { message: 'New release' } }])
+  const window = { isDestroyed: () => false }
+  const previousDialog = dialogs.showMessageBox
+  const start = shellOpenedUrls.length
+  try {
+    for (const response of [0, 1, 2]) {
+      dialogs.showMessageBox = async (parent, options) => {
+        assert.equal(parent, window)
+        assert.equal(options.message, 'A new update is available')
+        assert.deepEqual(options.buttons, ['Open GitHub', 'Open itch.io', 'Later'])
+        assert.equal(options.cancelId, 2)
+        return { response }
+      }
+      await showStartupUpdate(window, 'a'.repeat(40))
+    }
+    assert.deepEqual(shellOpenedUrls.slice(start), [
+      'https://github.com/PixallyDev/yapin-bot-maker',
+      'https://reflex-dev.itch.io/yapper-maker'
+    ])
+    dialogs.showMessageBox = async () => {
+      assert.fail('Destroyed windows cannot show an update')
+    }
+    await showStartupUpdate({ isDestroyed: () => true }, 'a'.repeat(40))
+  } finally {
+    dialogs.showMessageBox = previousDialog
+  }
 })

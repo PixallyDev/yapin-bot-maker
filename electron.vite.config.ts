@@ -1,10 +1,25 @@
 import { resolve } from 'path'
+import { execFileSync } from 'node:child_process'
 import { defineConfig } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { standaloneRuntime } from './build/standaloneRuntime'
 
+function buildCommit(): string {
+  const supplied = process.env.YAPPER_BUILD_COMMIT || process.env.GITHUB_SHA
+  if (supplied && /^[a-f0-9]{40}$/i.test(supplied)) return supplied
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    }).trim()
+  } catch {
+    return ''
+  }
+}
+
 export default defineConfig({
   main: {
+    define: { __APP_BUILD_COMMIT__: JSON.stringify(buildCommit()) },
     plugins: [
       {
         name: 'standalone-bot-runtime',

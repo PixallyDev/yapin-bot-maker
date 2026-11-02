@@ -10,9 +10,11 @@ import { saveProject, loadProject } from './projectFiles'
 import { TokenStore } from './tokenStore'
 import { exportStandalone } from './standaloneExport'
 import { setupAuthHandlers, closeActiveAuthServer } from './authHandler'
+import { showStartupUpdate } from './updateChecker'
 
 let mainWindow: BrowserWindow | null = null
 let botRunner: BotRunner | null = null
+let updateCheckStarted = false
 
 // Preserve existing projects and preferences when upgrading from the previous app name.
 const existingUserData = [
@@ -43,6 +45,13 @@ function createWindow(): void {
   mainWindow.on('ready-to-show', () => {
     if (mainWindow) {
       mainWindow.show()
+    }
+  })
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (app.isPackaged && !updateCheckStarted && mainWindow) {
+      updateCheckStarted = true
+      void showStartupUpdate(mainWindow)
     }
   })
 
