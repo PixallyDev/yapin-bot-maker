@@ -15,6 +15,7 @@ interface ToolbarProps {
   onLoadProject: () => void
   onNewCanvas: () => void
   onOpenTemplates: () => void
+  projectName?: string
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
@@ -31,7 +32,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onSaveProject,
   onLoadProject,
   onNewCanvas,
-  onOpenTemplates
+  onOpenTemplates,
+  projectName = 'Default Ping & FAQ Bot'
 }) => {
   const [showToken, setShowToken] = useState(false)
 
@@ -43,8 +45,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span>⚡</span>
           </div>
           <div className="app-title-group">
-            <span className="app-title">Yapin Bot Maker</span>
-            <span className="app-version-tag">Studio v1.0</span>
+            <span className="app-title">Flow Studio</span>
+            <span className="project-name-badge" title={`Active Project: ${projectName}`}>
+              📁 {projectName}
+            </span>
           </div>
         </div>
 
@@ -69,29 +73,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </button>
           </div>
         </div>
-      </div>
 
-      <label
-        className="remember-token"
-        title={
-          tokenStorageAvailable
-            ? 'Store encrypted on this PC only'
-            : 'Secure token storage is unavailable'
-        }
-      >
-        <input
-          type="checkbox"
-          checked={rememberToken}
-          disabled={!tokenStorageAvailable && !rememberToken}
-          onChange={(event) => onRememberToken(event.target.checked)}
-        />
-        Remember token on this PC
-      </label>
+        <label
+          className="remember-token"
+          title={
+            tokenStorageAvailable
+              ? 'Store encrypted on this PC only'
+              : 'Secure token storage is unavailable'
+          }
+        >
+          <input
+            type="checkbox"
+            checked={rememberToken}
+            disabled={!tokenStorageAvailable && !rememberToken}
+            onChange={(event) => onRememberToken(event.target.checked)}
+          />
+          <span>Remember Token</span>
+        </label>
+      </div>
 
       <div className="toolbar-center">
         <div className={`status-badge ${isRunning ? 'status-running' : 'status-stopped'}`}>
           <span className={`status-dot ${isRunning ? 'pulse' : ''}`} />
-          <span className="status-text">{isRunning ? 'BOT ONLINE' : 'BOT STOPPED'}</span>
+          <span className="status-text">{isRunning ? 'BOT ONLINE' : 'BOT OFFLINE'}</span>
         </div>
       </div>
 
@@ -104,39 +108,39 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             disabled={isExporting}
             title="Export a Node.js bot that runs independently of the studio"
           >
-            {isExporting ? 'Exporting...' : 'Export Standalone Bot'}
+            {isExporting ? 'Exporting...' : 'Export Bot'}
           </button>
           <button
             type="button"
             className="toolbar-btn btn-templates"
             onClick={onOpenTemplates}
-            title="Browse starter bot templates"
+            title="Browse starter flow templates"
           >
-            <span>📦</span> Templates
+            <span>✨</span> Templates
           </button>
           <button
             type="button"
             className="toolbar-btn btn-secondary"
             onClick={onNewCanvas}
-            title="Reset to default example"
+            title="Reset to default blank starter nodes"
           >
-            <span>📄</span> New
+            <span>📄</span> Clear
           </button>
           <button
             type="button"
             className="toolbar-btn btn-secondary"
             onClick={onLoadProject}
-            title="Open .yapbot.json file"
+            title="Load project from a .yapbot.json file"
           >
-            <span>📂</span> Load JSON
+            <span>📂</span> Load
           </button>
           <button
             type="button"
             className="toolbar-btn btn-secondary"
             onClick={onSaveProject}
-            title="Save as .yapbot.json"
+            title="Save current canvas to a .yapbot.json file"
           >
-            <span>💾</span> Save JSON
+            <span>💾</span> Save
           </button>
         </div>
 
@@ -145,18 +149,23 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           className={`toolbar-btn bot-toggle-btn ${isRunning ? 'btn-stop' : 'btn-start'}`}
           onClick={onToggleBot}
           disabled={isStarting}
+          title={
+            isRunning
+              ? 'Stop bot execution'
+              : !token.trim()
+                ? 'Enter a bot token to start'
+                : 'Start bot runner'
+          }
         >
           {isStarting ? (
-            <>
-              <span className="btn-spinner" /> Starting...
-            </>
+            <span className="btn-spinner">Connecting...</span>
           ) : isRunning ? (
             <>
-              <span>⏹️</span> Stop Bot
+              <span>⏹</span> Stop Bot
             </>
           ) : (
             <>
-              <span>▶️</span> Start Bot
+              <span>▶</span> Start Bot
             </>
           )}
         </button>

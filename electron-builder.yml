@@ -1,23 +1,35 @@
-appId: com.electron.app
-productName: ybm
+appId: com.yapin.botmaker
+productName: Yapin Bot Maker
 directories:
   buildResources: build
+  output: dist
+asar: true
 files:
-  - '!**/.vscode/*'
-  - '!src/*'
-  - '!electron.vite.config.{js,ts,mjs,cjs}'
-  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
-  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
-  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  - out/**
+  - resources/**
+  - package.json
 asarUnpack:
   - resources/**
 win:
-  executableName: ybm
+  executableName: Yapin Bot Maker
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${productName}-${version}-Setup-${arch}.${ext}
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  runAfterFinish: false
+portable:
+  artifactName: ${productName}-${version}-Portable-${arch}.${ext}
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:
@@ -38,6 +50,3 @@ linux:
 appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
-publish:
-  provider: generic
-  url: https://example.com/auto-updates
